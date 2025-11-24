@@ -1,0 +1,109 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  student
+  teacher
+}
+
+enum JustificanteStatus {
+  pending
+  approved
+  rejected
+}
+
+model User {
+  id          Int       @id @default(autoincrement())
+  email       String    @unique @db.VarChar(190)
+  password    String    @db.VarChar(255)
+  fullName    String    @db.VarChar(190)
+  role        Role
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  classes     Class[]   @relation("TeacherClasses")
+  enrollments ClassEnrollment[]
+  schedules   Schedule[]
+  moodEntries MoodEntry[]
+  justificantes Justificante[]
+  resets      PasswordReset[]
+}
+
+model Class {
+  id          Int       @id @default(autoincrement())
+  teacher     User      @relation("TeacherClasses", fields: [teacherId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  teacherId   Int
+  name        String    @db.VarChar(190)
+  code        String    @unique @db.Char(8)
+  createdAt   DateTime  @default(now())
+  enrollments ClassEnrollment[]
+  schedules   Schedule[]
+  moodEntries MoodEntry[]
+  justificantes Justificante[]
+}
+
+model ClassEnrollment {
+  id         Int   @id @default(autoincrement())
+  class      Class @relation(fields: [classId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  classId    Int
+  student    User  @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  studentId  Int
+  createdAt  DateTime @default(now())
+
+  @@unique([classId, studentId])
+}
+
+model Schedule {
+  id         Int      @id @default(autoincrement())
+  class      Class    @relation(fields: [classId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  classId    Int
+  student    User     @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  studentId  Int
+  fileName   String   @db.VarChar(255)
+  fileUrl    String   @db.VarChar(500)
+  uploadedAt DateTime @default(now())
+
+  @@unique([classId, studentId])
+}
+
+model MoodEntry {
+  id                Int      @id @default(autoincrement())
+  class             Class    @relation(fields: [classId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  classId           Int
+  student           User     @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  studentId         Int
+  dayLabel          String   @db.VarChar(40)
+  moodValue         Int
+  comment           String?
+  scheduleFileName  String?  @db.VarChar(255)
+  createdAt         DateTime @default(now())
+}
+
+model Justificante {
+  id         Int      @id @default(autoincrement())
+  class      Class    @relation(fields: [classId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  classId    Int
+  student    User     @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  studentId  Int
+  imageName  String   @db.VarChar(255)
+  imageUrl   String   @db.VarChar(500)
+  reason     String
+  status     JustificanteStatus @default(pending)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model PasswordReset {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  userId    Int
+  token     String   @unique @db.Char(64)
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
