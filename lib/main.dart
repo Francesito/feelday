@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'api_client.dart';
 
 void main() {
   runApp(const FeeldayApp());
@@ -10,12 +11,14 @@ enum UserRole { student, teacher }
 
 class UserAccount {
   UserAccount({
+    required this.id,
     required this.email,
     required this.password,
     required this.role,
     required this.displayName,
   });
 
+  final int id;
   final String email;
   final String password;
   final UserRole role;
@@ -28,12 +31,18 @@ class ClassRoom {
     required this.name,
     required this.code,
     required this.teacherEmail,
+    this.teacherName = '',
+    this.joined = false,
+    this.studentCount = 0,
   });
 
-  final String id;
+  final int id;
   final String name;
   final String code;
   final String teacherEmail;
+  final String teacherName;
+  final bool joined;
+  final int studentCount;
   final List<String> studentEmails = [];
   final Map<String, ScheduleUpload> schedules = {};
   final List<MoodEntry> moodEntries = [];
@@ -41,17 +50,26 @@ class ClassRoom {
 }
 
 class ScheduleUpload {
-  ScheduleUpload({required this.fileName, required this.uploadedAt});
+  ScheduleUpload({
+    required this.classId,
+    required this.studentId,
+    required this.fileName,
+    required this.fileUrl,
+    required this.uploadedAt,
+  });
+  final int classId;
+  final int studentId;
   final String fileName;
+  final String fileUrl;
   final DateTime uploadedAt;
 }
 
 class MoodEntry {
   MoodEntry({
+    required this.studentId,
     required this.studentEmail,
     required this.classId,
     required this.className,
-    required this.teacherEmail,
     required this.day,
     required this.mood,
     required this.comment,
@@ -59,10 +77,10 @@ class MoodEntry {
     required this.createdAt,
   });
 
+  final int studentId;
   final String studentEmail;
-  final String classId;
+  final int classId;
   final String className;
-  final String teacherEmail;
   final String day;
   final double mood;
   final String comment;
@@ -73,6 +91,7 @@ class MoodEntry {
 class Justificante {
   Justificante({
     required this.id,
+    required this.studentId,
     required this.studentEmail,
     required this.classId,
     required this.className,
@@ -81,9 +100,10 @@ class Justificante {
     this.status = JustificanteStatus.pending,
   });
 
-  final String id;
+  final int id;
+  final int studentId;
   final String studentEmail;
-  final String classId;
+  final int classId;
   final String className;
   final String reason;
   final String imageLabel;
@@ -100,24 +120,14 @@ class FeeldayApp extends StatefulWidget {
 }
 
 class _FeeldayAppState extends State<FeeldayApp> {
-  final List<UserAccount> _accounts = [
-    UserAccount(
-      email: 'profe@feelday.com',
-      password: 'feelday123',
-      role: UserRole.teacher,
-      displayName: 'Profe Demo',
-    ),
-    UserAccount(
-      email: 'alumno@feelday.com',
-      password: 'feelday123',
-      role: UserRole.student,
-      displayName: 'Alumno Demo',
-    ),
-  ];
-
+  final ApiClient _api = ApiClient(baseUrl: 'https://feelday.onrender.com');
   final List<ClassRoom> _classes = [];
+  final List<MoodEntry> _allMoodEntries = [];
+  final List<Justificante> _allJustificantes = [];
+  final Map<int, ScheduleUpload> _mySchedules = {};
   UserAccount? _currentUser;
   String _resetEmailMessage = '';
+  bool _loading = false;
 
   @override
   Widget build(BuildContext context) {
@@ -142,181 +152,369 @@ class _FeeldayAppState extends State<FeeldayApp> {
       ),
     );
 
+    final homeWidget = _currentUser == null
+        ? AuthShell(
+            onLogin: _handleLogin,
+            onRegister: _handleRegister,
+            onReset: _handleReset,
+            resetMessage: _resetEmailMessage,
+          )
+        : _currentUser!.role == UserRole.student
+            ? StudentShell(
+                user: _currentUser!,
+                classes: _classes,
+                schedules: _mySchedules,
+                moodEntries: _allMoodEntries,
+                justificantes: _allJustificantes,
+                onJoinClass: _joinClass,
+                onLogout: _logout,
+                onUploadSchedule: _uploadSchedule,
+                onSubmitMood: _submitMood,
+                onSubmitJustificante: ({required cls, required reason, required imageLabel}) =>
+                    _submitJustificante(
+                  cls: cls,
+                  reason: reason,
+                  imageLabel: imageLabel,
+                  context: context,
+                ),
+                onRefresh: _refreshData,
+              )
+            : TeacherShell(
+                user: _currentUser!,
+                classes: _classes,
+                moodEntries: _allMoodEntries,
+                justificantes: _allJustificantes,
+                onCreateClass: (name, ctx) => _createClass(name, ctx),
+                onLogout: _logout,
+                onUpdateJustificante: _updateJustificanteStatus,
+              );
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'feelday',
       theme: theme,
-      home: _currentUser == null
-          ? AuthShell(
-              onLogin: _handleLogin,
-              onRegister: _handleRegister,
-              onReset: _handleReset,
-              resetMessage: _resetEmailMessage,
-            )
-          : _currentUser!.role == UserRole.student
-              ? StudentShell(
-                  user: _currentUser!,
-                  classes: _classes,
-                  onJoinClass: _joinClass,
-                  onLogout: _logout,
-                  onUploadSchedule: _uploadSchedule,
-                  onSubmitMood: _submitMood,
-                  onSubmitJustificante: _submitJustificante,
-                )
-              : TeacherShell(
-                  user: _currentUser!,
-                  classes: _classes,
-                  onCreateClass: _createClass,
-                  onLogout: _logout,
-                  onUpdateJustificante: _updateJustificanteStatus,
-                ),
+      home: Stack(
+        children: [
+          homeWidget,
+          if (_loading)
+            const Align(
+              alignment: Alignment.topCenter,
+              child: LinearProgressIndicator(),
+            ),
+        ],
+      ),
     );
   }
 
-  void _handleLogin(String email, String password, BuildContext context) {
-    final account = _accounts.where((a) => a.email == email).firstOrNull;
-    if (account != null && account.password == password) {
-      setState(() => _currentUser = account);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Credenciales incorrectas')),
+  Future<void> _handleLogin(String email, String password, BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      setState(() => _loading = true);
+      final data = await _api.login(email, password);
+      _api.token = data['token'] as String?;
+      final userData = data['user'] as Map<String, dynamic>;
+      _currentUser = UserAccount(
+        id: userData['id'] as int,
+        email: userData['email'] as String,
+        password: '',
+        role: userData['role'] == 'teacher' ? UserRole.teacher : UserRole.student,
+        displayName: userData['fullName'] as String,
       );
+      await _refreshData();
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    } finally {
+      setState(() => _loading = false);
     }
   }
 
-  void _handleRegister({
+  Future<void> _handleRegister({
     required String email,
     required String password,
     required String name,
     required UserRole role,
     required BuildContext context,
-  }) {
-    if (_accounts.any((a) => a.email == email)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Este correo ya está registrado')),
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      setState(() => _loading = true);
+      final data = await _api.register(email, password, name, role.name);
+      _api.token = data['token'] as String?;
+      final userData = data['user'] as Map<String, dynamic>;
+      _currentUser = UserAccount(
+        id: userData['id'] as int,
+        email: userData['email'] as String,
+        password: '',
+        role: userData['role'] == 'teacher' ? UserRole.teacher : UserRole.student,
+        displayName: userData['fullName'] as String,
       );
-      return;
-    }
-    final newAccount = UserAccount(
-      email: email,
-      password: password,
-      role: role,
-      displayName: name,
-    );
-    setState(() {
-      _accounts.add(newAccount);
-      _currentUser = newAccount;
-    });
-  }
-
-  void _handleReset(String email, BuildContext context) {
-    final exists = _accounts.any((a) => a.email == email);
-    setState(() {
-      _resetEmailMessage = exists
-          ? 'Enviamos un enlace de recuperación a $email (simulado).'
-          : 'No encontramos el correo $email.';
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(_resetEmailMessage)),
-    );
-  }
-
-  void _logout() => setState(() => _currentUser = null);
-
-  void _createClass(String name) {
-    if (_currentUser == null) return;
-    final code = _generateCode();
-    final cls = ClassRoom(
-      id: UniqueKey().toString(),
-      name: name,
-      code: code,
-      teacherEmail: _currentUser!.email,
-    );
-    setState(() {
-      _classes.add(cls);
-    });
-  }
-
-  void _joinClass(String code, BuildContext context) {
-    if (_currentUser == null) return;
-    final cls = _classes.where((c) => c.code == code).firstOrNull;
-    if (cls == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No encontramos la clase con ese código')),
+      await _refreshData();
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(e.toString())),
       );
-      return;
-    }
-    if (!cls.studentEmails.contains(_currentUser!.email)) {
-      setState(() => cls.studentEmails.add(_currentUser!.email));
+    } finally {
+      setState(() => _loading = false);
     }
   }
 
-  void _uploadSchedule(ClassRoom cls, String fileName) {
+  Future<void> _handleReset(String email, BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final data = await _api.forgot(email);
+      setState(() {
+        _resetEmailMessage = data['message']?.toString() ?? 'Solicitud enviada';
+      });
+      messenger.showSnackBar(
+        SnackBar(content: Text(_resetEmailMessage)),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
+
+  void _logout() => setState(() {
+        _currentUser = null;
+        _api.token = null;
+        _classes.clear();
+        _allMoodEntries.clear();
+        _allJustificantes.clear();
+        _mySchedules.clear();
+      });
+
+  Future<void> _createClass(String name, BuildContext context) async {
     if (_currentUser == null) return;
-    setState(() {
-      cls.schedules[_currentUser!.email] = ScheduleUpload(
-        fileName: fileName,
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _api.createClass(name);
+      await _refreshData();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Clase creada')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  Future<void> _joinClass(String code, BuildContext context) async {
+    if (_currentUser == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _api.joinClass(code);
+      await _refreshData();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Unido a la clase')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  Future<void> _uploadSchedule(ClassRoom cls, String fileName) async {
+    if (_currentUser == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final fakeUrl = 'https://files.example/$fileName';
+    try {
+      final res = await _api.submitSchedule({
+        'classId': cls.id,
+        'fileUrl': fakeUrl,
+        'fileName': fileName,
+      });
+      final upload = ScheduleUpload(
+        classId: cls.id,
+        studentId: _currentUser!.id,
+        fileName: res['fileName'] as String? ?? fileName,
+        fileUrl: res['fileUrl'] as String? ?? fakeUrl,
         uploadedAt: DateTime.now(),
       );
-    });
+      setState(() {
+        _mySchedules[cls.id] = upload;
+      });
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    }
   }
 
-  void _submitMood({
+  Future<void> _submitMood({
     required ClassRoom cls,
     required double mood,
     required String comment,
     required String day,
     required String scheduleFileName,
-  }) {
+  }) async {
     if (_currentUser == null) return;
-    final entry = MoodEntry(
-      studentEmail: _currentUser!.email,
-      classId: cls.id,
-      className: cls.name,
-      teacherEmail: cls.teacherEmail,
-      day: day,
-      mood: mood,
-      comment: comment,
-      scheduleFileName: scheduleFileName,
-      createdAt: DateTime.now(),
-    );
-    setState(() {
-      cls.moodEntries.add(entry);
-    });
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final res = await _api.submitMood({
+        'classId': cls.id,
+        'moodValue': mood.toInt(),
+        'comment': comment,
+        'dayLabel': day,
+        'scheduleFileName': scheduleFileName,
+      });
+      final entry = MoodEntry(
+        studentId: _currentUser!.id,
+        studentEmail: _currentUser!.email,
+        classId: cls.id,
+        className: cls.name,
+        day: day,
+        mood: mood,
+        comment: comment,
+        scheduleFileName: scheduleFileName,
+        createdAt: DateTime.parse(res['createdAt'] as String? ?? DateTime.now().toIso8601String()),
+      );
+      setState(() {
+        _allMoodEntries.insert(0, entry);
+      });
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    }
   }
 
-  void _submitJustificante({
+  Future<void> _submitJustificante({
     required ClassRoom cls,
     required String reason,
     required String imageLabel,
-  }) {
+    required BuildContext context,
+  }) async {
     if (_currentUser == null) return;
-    final justificante = Justificante(
-      id: UniqueKey().toString(),
-      studentEmail: _currentUser!.email,
-      classId: cls.id,
-      className: cls.name,
-      reason: reason,
-      imageLabel: imageLabel,
-    );
-    setState(() {
-      cls.justificantes.add(justificante);
-    });
+    final messenger = ScaffoldMessenger.of(context);
+    final fakeUrl = 'https://files.example/$imageLabel';
+    try {
+      final res = await _api.submitJustificante({
+        'classId': cls.id,
+        'reason': reason,
+        'imageUrl': fakeUrl,
+        'imageName': imageLabel,
+      });
+      final j = Justificante(
+        id: res['id'] as int? ?? Random().nextInt(999999),
+        studentId: _currentUser!.id,
+        studentEmail: _currentUser!.email,
+        classId: cls.id,
+        className: cls.name,
+        reason: reason,
+        imageLabel: imageLabel,
+      );
+      setState(() {
+        _allJustificantes.insert(0, j);
+      });
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Justificante enviado')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    }
   }
 
-  void _updateJustificanteStatus(
+  Future<void> _updateJustificanteStatus(
     Justificante justificante,
     JustificanteStatus status,
-  ) {
-    setState(() {
-      justificante.status = status;
-    });
+  ) async {
+    try {
+      await _api.updateJustificanteStatus(justificante.id, status.name);
+      setState(() {
+        justificante.status = status;
+      });
+    } catch (_) {}
   }
 
-  String _generateCode() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final rand = Random();
-    return List.generate(6, (_) => chars[rand.nextInt(chars.length)]).join();
+  Future<void> _refreshData() async {
+    if (_currentUser == null) return;
+    try {
+      setState(() => _loading = true);
+      final classes = await _api.fetchClasses();
+      _classes
+        ..clear()
+        ..addAll(classes.map((c) {
+          final teacher = c['teacher'] as Map<String, dynamic>?;
+          final enrollments = (c['enrollments'] as List<dynamic>? ?? []);
+          return ClassRoom(
+            id: c['id'] as int,
+            name: c['name'] as String,
+            code: c['code'] as String,
+            teacherEmail: teacher?['email']?.toString() ?? '',
+            teacherName: teacher?['fullName']?.toString() ?? '',
+            joined: enrollments.isNotEmpty || _currentUser!.role == UserRole.teacher,
+            studentCount: enrollments.length,
+          );
+        }));
+
+      final schedules = await _api.fetchSchedules();
+      _mySchedules.clear();
+      for (final s in schedules) {
+        final classId = s['classId'] as int;
+        final studentId = s['studentId'] as int;
+        final schedule = ScheduleUpload(
+          classId: classId,
+          studentId: studentId,
+          fileName: s['fileName'] as String? ?? 'horario.pdf',
+          fileUrl: s['fileUrl'] as String? ?? '',
+          uploadedAt: DateTime.parse(
+            s['uploadedAt']?.toString() ?? DateTime.now().toIso8601String(),
+          ),
+        );
+        if (studentId == _currentUser!.id) {
+          _mySchedules[classId] = schedule;
+        }
+      }
+
+      final moods = await _api.fetchMoodEntries();
+      _allMoodEntries
+        ..clear()
+        ..addAll(moods.map((m) {
+          final student = m['student'] as Map<String, dynamic>? ?? {};
+          final cls = m['class'] as Map<String, dynamic>? ?? {};
+          return MoodEntry(
+            studentId: student['id'] as int? ?? 0,
+            studentEmail: student['email']?.toString() ?? '',
+            classId: cls['id'] as int? ?? (m['classId'] as int? ?? 0),
+            className: cls['name']?.toString() ?? '',
+            day: m['dayLabel']?.toString() ?? '',
+            mood: (m['moodValue'] as num? ?? 0).toDouble(),
+            comment: m['comment']?.toString() ?? '',
+            scheduleFileName: m['scheduleFileName']?.toString() ?? '',
+            createdAt: DateTime.parse(
+              m['createdAt']?.toString() ?? DateTime.now().toIso8601String(),
+            ),
+          );
+        }));
+
+      final justs = await _api.fetchJustificantes();
+      _allJustificantes
+        ..clear()
+        ..addAll(justs.map((j) {
+          final student = j['student'] as Map<String, dynamic>? ?? {};
+          final cls = j['class'] as Map<String, dynamic>? ?? {};
+          return Justificante(
+            id: j['id'] as int? ?? 0,
+            studentId: student['id'] as int? ?? 0,
+            studentEmail: student['email']?.toString() ?? '',
+            classId: cls['id'] as int? ?? 0,
+            className: cls['name']?.toString() ?? '',
+            reason: j['reason']?.toString() ?? '',
+            imageLabel: j['imageName']?.toString() ?? '',
+            status: _statusFromString(j['status']?.toString()),
+          );
+        }));
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  JustificanteStatus _statusFromString(String? status) {
+    switch (status) {
+      case 'approved':
+        return JustificanteStatus.approved;
+      case 'rejected':
+        return JustificanteStatus.rejected;
+      default:
+        return JustificanteStatus.pending;
+    }
   }
 }
 
@@ -329,16 +527,16 @@ class AuthShell extends StatefulWidget {
     required this.resetMessage,
   });
 
-  final void Function(String email, String password, BuildContext context)
+  final Future<void> Function(String email, String password, BuildContext context)
       onLogin;
-  final void Function({
+  final Future<void> Function({
     required String email,
     required String password,
     required String name,
     required UserRole role,
     required BuildContext context,
   }) onRegister;
-  final void Function(String email, BuildContext context) onReset;
+  final Future<void> Function(String email, BuildContext context) onReset;
   final String resetMessage;
 
   @override
@@ -426,7 +624,7 @@ class LoginCard extends StatefulWidget {
     required this.onForgot,
   });
 
-  final void Function(String email, String password, BuildContext context)
+  final Future<void> Function(String email, String password, BuildContext context)
       onLogin;
   final VoidCallback onChangePage;
   final VoidCallback onForgot;
@@ -523,7 +721,7 @@ class RegisterCard extends StatefulWidget {
     required this.onBack,
   });
 
-  final void Function({
+  final Future<void> Function({
     required String email,
     required String password,
     required String name,
@@ -658,7 +856,7 @@ class ResetCard extends StatefulWidget {
     required this.onBack,
   });
 
-  final void Function(String email, BuildContext context) onReset;
+  final Future<void> Function(String email, BuildContext context) onReset;
   final String lastMessage;
   final VoidCallback onBack;
 
@@ -730,15 +928,22 @@ class StudentShell extends StatefulWidget {
     super.key,
     required this.user,
     required this.classes,
+    required this.schedules,
+    required this.moodEntries,
+    required this.justificantes,
     required this.onJoinClass,
     required this.onLogout,
     required this.onUploadSchedule,
     required this.onSubmitMood,
     required this.onSubmitJustificante,
+    required this.onRefresh,
   });
 
   final UserAccount user;
   final List<ClassRoom> classes;
+  final Map<int, ScheduleUpload> schedules;
+  final List<MoodEntry> moodEntries;
+  final List<Justificante> justificantes;
   final void Function(String code, BuildContext context) onJoinClass;
   final VoidCallback onLogout;
   final void Function(ClassRoom cls, String fileName) onUploadSchedule;
@@ -754,6 +959,7 @@ class StudentShell extends StatefulWidget {
     required String reason,
     required String imageLabel,
   }) onSubmitJustificante;
+  final Future<void> Function() onRefresh;
 
   @override
   State<StudentShell> createState() => _StudentShellState();
@@ -768,14 +974,19 @@ class _StudentShellState extends State<StudentShell> {
       StudentClassesPage(
         user: widget.user,
         classes: widget.classes,
+        schedules: widget.schedules,
+        moodEntries: widget.moodEntries,
         onJoinClass: widget.onJoinClass,
         onUploadSchedule: widget.onUploadSchedule,
         onSubmitMood: widget.onSubmitMood,
+        onRefresh: widget.onRefresh,
       ),
       JustificantesPage(
         user: widget.user,
         classes: widget.classes,
+        justificantes: widget.justificantes,
         onSubmitJustificante: widget.onSubmitJustificante,
+        onRefresh: widget.onRefresh,
       ),
     ];
 
@@ -815,13 +1026,18 @@ class StudentClassesPage extends StatefulWidget {
     super.key,
     required this.user,
     required this.classes,
+    required this.schedules,
+    required this.moodEntries,
     required this.onJoinClass,
     required this.onUploadSchedule,
     required this.onSubmitMood,
+    required this.onRefresh,
   });
 
   final UserAccount user;
   final List<ClassRoom> classes;
+  final Map<int, ScheduleUpload> schedules;
+  final List<MoodEntry> moodEntries;
   final void Function(String code, BuildContext context) onJoinClass;
   final void Function(ClassRoom cls, String fileName) onUploadSchedule;
   final void Function({
@@ -831,6 +1047,7 @@ class StudentClassesPage extends StatefulWidget {
     required String day,
     required String scheduleFileName,
   }) onSubmitMood;
+  final Future<void> Function() onRefresh;
 
   @override
   State<StudentClassesPage> createState() => _StudentClassesPageState();
@@ -846,9 +1063,7 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final joined = widget.classes
-        .where((c) => c.studentEmails.contains(widget.user.email))
-        .toList();
+    final joined = widget.classes.where((c) => c.joined).toList();
     final available = widget.classes;
 
     return SingleChildScrollView(
@@ -949,7 +1164,7 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
   }
 
   Widget _buildMoodForm(BuildContext context, ClassRoom cls) {
-    final schedule = cls.schedules[widget.user.email];
+    final schedule = widget.schedules[cls.id];
     _selectedFile = schedule?.fileName;
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -1073,8 +1288,9 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
               ),
             ),
             const SizedBox(height: 8),
-            ...cls.moodEntries
-                .where((m) => m.studentEmail == widget.user.email)
+            ...widget.moodEntries
+                .where((m) =>
+                    m.studentEmail == widget.user.email && m.classId == cls.id)
                 .map(
                   (m) => ListTile(
                     leading: Text(_emojiForMood(m.mood), style: const TextStyle(fontSize: 24)),
@@ -1213,16 +1429,20 @@ class JustificantesPage extends StatefulWidget {
     super.key,
     required this.user,
     required this.classes,
+    required this.justificantes,
     required this.onSubmitJustificante,
+    required this.onRefresh,
   });
 
   final UserAccount user;
   final List<ClassRoom> classes;
+  final List<Justificante> justificantes;
   final void Function({
     required ClassRoom cls,
     required String reason,
     required String imageLabel,
   }) onSubmitJustificante;
+  final Future<void> Function() onRefresh;
 
   @override
   State<JustificantesPage> createState() => _JustificantesPageState();
@@ -1241,13 +1461,23 @@ class _JustificantesPageState extends State<JustificantesPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Justificantes',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF073F50),
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Justificantes',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF073F50),
+                ),
+              ),
+              IconButton(
+                onPressed: widget.onRefresh,
+                icon: const Icon(Icons.refresh),
+                tooltip: 'Actualizar',
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           DropdownButton<ClassRoom>(
@@ -1270,8 +1500,10 @@ class _JustificantesPageState extends State<JustificantesPage> {
             ),
           const SizedBox(height: 12),
           if (selectedClass != null)
-            ...selectedClass!.justificantes
-                .where((j) => j.studentEmail == widget.user.email)
+            ...widget.justificantes
+                .where((j) =>
+                    j.studentEmail == widget.user.email &&
+                    j.classId == selectedClass!.id)
                 .map(
                   (j) => Card(
                     child: ListTile(
@@ -1408,6 +1640,8 @@ class TeacherShell extends StatefulWidget {
     super.key,
     required this.user,
     required this.classes,
+    required this.moodEntries,
+    required this.justificantes,
     required this.onCreateClass,
     required this.onLogout,
     required this.onUpdateJustificante,
@@ -1415,7 +1649,9 @@ class TeacherShell extends StatefulWidget {
 
   final UserAccount user;
   final List<ClassRoom> classes;
-  final void Function(String name) onCreateClass;
+  final List<MoodEntry> moodEntries;
+  final List<Justificante> justificantes;
+  final void Function(String name, BuildContext context) onCreateClass;
   final VoidCallback onLogout;
   final void Function(Justificante justificante, JustificanteStatus status)
       onUpdateJustificante;
@@ -1439,6 +1675,8 @@ class _TeacherShellState extends State<TeacherShell> {
       ),
       TeacherPanel(
         classes: myClasses,
+        moodEntries: widget.moodEntries,
+        justificantes: widget.justificantes,
         onUpdateJustificante: widget.onUpdateJustificante,
       ),
     ];
@@ -1482,7 +1720,7 @@ class TeacherClassesPage extends StatefulWidget {
   });
 
   final List<ClassRoom> classes;
-  final void Function(String name) onCreate;
+  final void Function(String name, BuildContext context) onCreate;
 
   @override
   State<TeacherClassesPage> createState() => _TeacherClassesPageState();
@@ -1524,7 +1762,7 @@ class _TeacherClassesPageState extends State<TeacherClassesPage> {
                     width: double.infinity,
                     child: FilledButton(
                       onPressed: () {
-                        widget.onCreate(nameCtrl.text.trim());
+                        widget.onCreate(nameCtrl.text.trim(), context);
                         nameCtrl.clear();
                         setState(() {});
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -1557,7 +1795,7 @@ class _TeacherClassesPageState extends State<TeacherClassesPage> {
               child: ListTile(
                 leading: const Icon(Icons.folder_outlined),
                 title: Text(c.name),
-                subtitle: Text('Código: ${c.code}\nAlumnos: ${c.studentEmails.length}'),
+                subtitle: Text('Código: ${c.code}\nAlumnos: ${c.studentCount}'),
               ),
             ),
           ),
@@ -1571,17 +1809,21 @@ class TeacherPanel extends StatelessWidget {
   const TeacherPanel({
     super.key,
     required this.classes,
+    required this.moodEntries,
+    required this.justificantes,
     required this.onUpdateJustificante,
   });
 
   final List<ClassRoom> classes;
+  final List<MoodEntry> moodEntries;
+  final List<Justificante> justificantes;
   final void Function(Justificante justificante, JustificanteStatus status)
       onUpdateJustificante;
 
   @override
   Widget build(BuildContext context) {
-    final allMoodEntries = classes.expand((c) => c.moodEntries).toList();
-    final allJustificantes = classes.expand((c) => c.justificantes).toList();
+    final allMoodEntries = moodEntries;
+    final allJustificantes = justificantes;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -1663,8 +1905,4 @@ class TeacherPanel extends StatelessWidget {
     if (mood <= 80) return '🙂';
     return '😄';
   }
-}
-
-extension _FirstOrNull<E> on Iterable<E> {
-  E? get firstOrNull => isEmpty ? null : first;
 }

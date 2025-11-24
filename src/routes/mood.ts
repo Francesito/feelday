@@ -12,10 +12,18 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res) => {
       req.user.role === 'teacher'
         ? await prisma.moodEntry.findMany({
             where: { class: { teacherId: req.user.userId } },
+            include: {
+              class: { select: { id: true, name: true } },
+              student: { select: { id: true, email: true, fullName: true } },
+            },
             orderBy: { createdAt: 'desc' },
           })
         : await prisma.moodEntry.findMany({
             where: { studentId: req.user.userId },
+            include: {
+              class: { select: { id: true, name: true } },
+              student: { select: { id: true, email: true, fullName: true } },
+            },
             orderBy: { createdAt: 'desc' },
           });
     return res.json(entries);

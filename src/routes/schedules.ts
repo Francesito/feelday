@@ -12,10 +12,18 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res) => {
       req.user.role === 'teacher'
         ? await prisma.schedule.findMany({
             where: { class: { teacherId: req.user.userId } },
+            include: {
+              class: { select: { id: true, name: true } },
+              student: { select: { id: true, email: true, fullName: true } },
+            },
             orderBy: { uploadedAt: 'desc' },
           })
         : await prisma.schedule.findMany({
             where: { studentId: req.user.userId },
+            include: {
+              class: { select: { id: true, name: true } },
+              student: { select: { id: true, email: true, fullName: true } },
+            },
             orderBy: { uploadedAt: 'desc' },
           });
     return res.json(schedules);
