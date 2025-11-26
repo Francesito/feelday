@@ -44,10 +44,37 @@ router.post('/register', async (req, res) => {
     });
 
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (err.code === 'P2002') {
+        return res.status(409).json({
+          error: 'Correo ya registrado (conflicto unique)',
+          code: err.code,
+          target: err.meta?.target,
+        });
+      }
+      if (err.code === 'P1001') {
+        return res.status(503).json({
+          error: 'No se pudo conectar a la base de datos (timeout)',
+          detail: err.message,
+        });
+      }
+      if (err.code === 'P1002') {
+        return res.status(503).json({
+          error: 'Base de datos en modo de espera o no accesible',
+          detail: err.message,
+        });
+      }
       return res.status(400).json({
         error: 'Error al guardar en base de datos',
         code: err.code,
         meta: err.meta,
+        detail: err.message,
+      });
+    }
+
+    if (err instanceof Prisma.PrismaClientInitializationError) {
+      return res.status(503).json({
+        error: 'No se pudo inicializar Prisma (conexión/driver)',
+        detail: err.message,
       });
     }
 

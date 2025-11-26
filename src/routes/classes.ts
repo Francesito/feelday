@@ -60,10 +60,10 @@ router.post('/join', requireAuth, requireRole('student'), async (req: Authentica
     if (!cls) return res.status(404).json({ error: 'Clase no encontrada' });
     const enrollment = await prisma.classEnrollment.upsert({
       where: { classId_studentId: { classId: cls.id, studentId: req.user.userId } },
-      update: {},
-      create: { classId: cls.id, studentId: req.user.userId },
+      update: { status: 'pending' },
+      create: { classId: cls.id, studentId: req.user.userId, status: 'pending' },
     });
-    return res.json({ class: cls, enrollment });
+    return res.json({ class: cls, enrollment, message: 'Solicitud enviada, pendiente de aprobación' });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Error interno' });
@@ -83,6 +83,42 @@ router.get('/:id/members', requireAuth, async (req: AuthenticatedRequest, res) =
     return res.status(500).json({ error: 'Error interno' });
   }
 });
+
+router.patch(
+  '/enrollments/:id',
+  requireAuth,
+  requireRole('teacher'),
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: 'No autorizado' });
+      const id = Number(req.params.id);
+      const { status } = req.body;
+      if (!['approved', 'rejected', 'pending'].includes(status)) {
+        return res.status(400).json({ error: 'Estado inválido' });
+      }
+      const enrollment = await prisma.classEnrollment.findUnique({
+        where: { id },
+        include: { class: true, student: true },
+      });
+      if (!enrollment) return res.status(404).json({ error: 'No encontrado' });
+      if (enrollment.class.teacherId !== req.user.userId) {
+        return res.status(403).json({ error: 'No tienes permisos en esta clase' });
+      }
+      const updated = await prisma.classEnrollment.update({
+        where: { id },
+        data: { status },
+        include: { student: true },
+      });
+      return res.json(updated);
+    } catch (err) {
+      console.error('[classes] Error actualizando enrollment', err);
+      return res.status(500).json({
+        error: 'Error interno al aprobar/rechazar',
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  },
+);
 
 function generateCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

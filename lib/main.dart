@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'api_client.dart';
+import 'package:file_picker/file_picker.dart';
 
 void main() {
   runApp(const FeeldayApp());
@@ -34,7 +35,9 @@ class ClassRoom {
     this.teacherName = '',
     this.joined = false,
     this.studentCount = 0,
-  });
+    this.enrollmentStatus = 'none',
+    List<EnrollmentRequest>? pendingEnrollments,
+  }) : pendingEnrollments = pendingEnrollments ?? const [];
 
   final int id;
   final String name;
@@ -43,10 +46,46 @@ class ClassRoom {
   final String teacherName;
   final bool joined;
   final int studentCount;
+  final String enrollmentStatus;
+  final List<EnrollmentRequest> pendingEnrollments;
   final List<String> studentEmails = [];
   final Map<String, ScheduleUpload> schedules = {};
   final List<MoodEntry> moodEntries = [];
   final List<Justificante> justificantes = [];
+
+  ClassRoom copyWith({
+    bool? joined,
+    String? enrollmentStatus,
+    List<EnrollmentRequest>? pendingEnrollments,
+  }) {
+    return ClassRoom(
+      id: id,
+      name: name,
+      code: code,
+      teacherEmail: teacherEmail,
+      teacherName: teacherName,
+      joined: joined ?? this.joined,
+      studentCount: studentCount,
+      enrollmentStatus: enrollmentStatus ?? this.enrollmentStatus,
+      pendingEnrollments: pendingEnrollments ?? this.pendingEnrollments,
+    );
+  }
+}
+
+class EnrollmentRequest {
+  EnrollmentRequest({
+    required this.id,
+    required this.studentEmail,
+    required this.studentName,
+    required this.status,
+    required this.classId,
+  });
+
+  final int id;
+  final String studentEmail;
+  final String studentName;
+  final String status;
+  final int classId;
 }
 
 class ScheduleUpload {
@@ -126,7 +165,6 @@ class _FeeldayAppState extends State<FeeldayApp> {
   final List<Justificante> _allJustificantes = [];
   final Map<int, ScheduleUpload> _mySchedules = {};
   UserAccount? _currentUser;
-  String _resetEmailMessage = '';
   bool _loading = false;
 
   @override
@@ -156,8 +194,6 @@ class _FeeldayAppState extends State<FeeldayApp> {
         ? AuthShell(
             onLogin: _handleLogin,
             onRegister: _handleRegister,
-            onReset: _handleReset,
-            resetMessage: _resetEmailMessage,
           )
         : _currentUser!.role == UserRole.student
             ? StudentShell(
@@ -187,6 +223,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
                 onCreateClass: (name, ctx) => _createClass(name, ctx),
                 onLogout: _logout,
                 onUpdateJustificante: _updateJustificanteStatus,
+                onReviewEnrollment: _reviewEnrollment,
               );
 
     return MaterialApp(
@@ -260,23 +297,6 @@ class _FeeldayAppState extends State<FeeldayApp> {
     }
   }
 
-  Future<void> _handleReset(String email, BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final data = await _api.forgot(email);
-      setState(() {
-        _resetEmailMessage = data['message']?.toString() ?? 'Solicitud enviada';
-      });
-      messenger.showSnackBar(
-        SnackBar(content: Text(_resetEmailMessage)),
-      );
-    } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
-    }
-  }
-
   void _logout() => setState(() {
         _currentUser = null;
         _api.token = null;
@@ -314,21 +334,20 @@ class _FeeldayAppState extends State<FeeldayApp> {
     }
   }
 
-  Future<void> _uploadSchedule(ClassRoom cls, String fileName) async {
+  Future<void> _uploadSchedule(ClassRoom cls, String fileName, String fileUrl) async {
     if (_currentUser == null) return;
     final messenger = ScaffoldMessenger.of(context);
-    final fakeUrl = 'https://files.example/$fileName';
     try {
       final res = await _api.submitSchedule({
         'classId': cls.id,
-        'fileUrl': fakeUrl,
+        'fileUrl': fileUrl.isNotEmpty ? fileUrl : fileName,
         'fileName': fileName,
       });
       final upload = ScheduleUpload(
         classId: cls.id,
         studentId: _currentUser!.id,
         fileName: res['fileName'] as String? ?? fileName,
-        fileUrl: res['fileUrl'] as String? ?? fakeUrl,
+        fileUrl: res['fileUrl'] as String? ?? fileUrl,
         uploadedAt: DateTime.now(),
       );
       setState(() {
@@ -346,6 +365,12 @@ class _FeeldayAppState extends State<FeeldayApp> {
     required String day,
     required String scheduleFileName,
   }) async {
+    if (cls.enrollmentStatus != 'approved') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tu solicitud a la clase está pendiente de aprobación.')),
+      );
+      return;
+    }
     if (_currentUser == null) return;
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -381,6 +406,12 @@ class _FeeldayAppState extends State<FeeldayApp> {
     required String imageLabel,
     required BuildContext context,
   }) async {
+    if (cls.enrollmentStatus != 'approved') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tu solicitud a la clase está pendiente de aprobación.')),
+      );
+      return;
+    }
     if (_currentUser == null) return;
     final messenger = ScaffoldMessenger.of(context);
     final fakeUrl = 'https://files.example/$imageLabel';
@@ -423,6 +454,27 @@ class _FeeldayAppState extends State<FeeldayApp> {
     } catch (_) {}
   }
 
+  Future<void> _reviewEnrollment(
+    int enrollmentId,
+    String status,
+    BuildContext context,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _api.updateEnrollmentStatus(enrollmentId, status);
+      await _refreshData();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            status == 'approved' ? 'Solicitud aprobada' : 'Solicitud actualizada',
+          ),
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
   Future<void> _refreshData() async {
     if (_currentUser == null) return;
     try {
@@ -433,14 +485,51 @@ class _FeeldayAppState extends State<FeeldayApp> {
         ..addAll(classes.map((c) {
           final teacher = c['teacher'] as Map<String, dynamic>?;
           final enrollments = (c['enrollments'] as List<dynamic>? ?? []);
+
+          if (_currentUser!.role == UserRole.student) {
+            final own = enrollments.cast<Map<String, dynamic>?>().firstWhere(
+                  (e) => e?['studentId'] == _currentUser!.id,
+                  orElse: () => null,
+                );
+            final status = own?['status']?.toString() ?? 'none';
+            final hasEnrollment = own != null;
+            return ClassRoom(
+              id: c['id'] as int,
+              name: c['name'] as String,
+              code: c['code'] as String,
+              teacherEmail: teacher?['email']?.toString() ?? '',
+              teacherName: teacher?['fullName']?.toString() ?? '',
+              joined: hasEnrollment,
+              enrollmentStatus: status,
+              studentCount: enrollments.length,
+              pendingEnrollments: const [],
+            );
+          }
+
+          final pendingEnrollments = enrollments
+              .map((e) => e as Map<String, dynamic>)
+              .where((e) => (e['status']?.toString() ?? 'pending') != 'approved')
+              .map(
+                (e) => EnrollmentRequest(
+                  id: e['id'] as int,
+                  studentEmail: (e['student']?['email'])?.toString() ?? '',
+                  studentName: (e['student']?['fullName'])?.toString() ?? '',
+                  status: e['status']?.toString() ?? 'pending',
+                  classId: c['id'] as int,
+                ),
+              )
+              .toList();
+
           return ClassRoom(
             id: c['id'] as int,
             name: c['name'] as String,
             code: c['code'] as String,
             teacherEmail: teacher?['email']?.toString() ?? '',
             teacherName: teacher?['fullName']?.toString() ?? '',
-            joined: enrollments.isNotEmpty || _currentUser!.role == UserRole.teacher,
+            joined: true,
+            enrollmentStatus: 'approved',
             studentCount: enrollments.length,
+            pendingEnrollments: pendingEnrollments,
           );
         }));
 
@@ -523,8 +612,6 @@ class AuthShell extends StatefulWidget {
     super.key,
     required this.onLogin,
     required this.onRegister,
-    required this.onReset,
-    required this.resetMessage,
   });
 
   final Future<void> Function(String email, String password, BuildContext context)
@@ -536,8 +623,6 @@ class AuthShell extends StatefulWidget {
     required UserRole role,
     required BuildContext context,
   }) onRegister;
-  final Future<void> Function(String email, BuildContext context) onReset;
-  final String resetMessage;
 
   @override
   State<AuthShell> createState() => _AuthShellState();
@@ -560,23 +645,23 @@ class _AuthShellState extends State<AuthShell> {
         child: SafeArea(
           child: Column(
             children: [
-              const SizedBox(height: 26),
+              const SizedBox(height: 18),
               Text(
-                'feelday',
+                'feelday 🐺',
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                       color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.2,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.4,
                     ),
               ),
               const SizedBox(height: 6),
               Text(
-                'Bienvenido, gestiona tus clases y estados de ánimo',
+                'Bienvenido, gestiona tus clases y estados de ánimo ✨',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Colors.white70,
                     ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               Expanded(
                 child: Container(
                   padding: const EdgeInsets.all(20),
@@ -591,20 +676,12 @@ class _AuthShellState extends State<AuthShell> {
                             key: const ValueKey('login'),
                             onLogin: widget.onLogin,
                             onChangePage: () => setState(() => _index = 1),
-                            onForgot: () => setState(() => _index = 2),
                           )
-                        : _index == 1
-                            ? RegisterCard(
-                                key: const ValueKey('register'),
-                                onRegister: widget.onRegister,
-                                onBack: () => setState(() => _index = 0),
-                              )
-                            : ResetCard(
-                                key: const ValueKey('reset'),
-                                onReset: widget.onReset,
-                                lastMessage: widget.resetMessage,
-                                onBack: () => setState(() => _index = 0),
-                              ),
+                        : RegisterCard(
+                            key: const ValueKey('register'),
+                            onRegister: widget.onRegister,
+                            onBack: () => setState(() => _index = 0),
+                          ),
                   ),
                 ),
               ),
@@ -621,21 +698,19 @@ class LoginCard extends StatefulWidget {
     super.key,
     required this.onLogin,
     required this.onChangePage,
-    required this.onForgot,
   });
 
   final Future<void> Function(String email, String password, BuildContext context)
       onLogin;
   final VoidCallback onChangePage;
-  final VoidCallback onForgot;
 
   @override
   State<LoginCard> createState() => _LoginCardState();
 }
 
 class _LoginCardState extends State<LoginCard> {
-  final emailCtrl = TextEditingController(text: 'alumno@feelday.com');
-  final passCtrl = TextEditingController(text: 'feelday123');
+  final emailCtrl = TextEditingController();
+  final passCtrl = TextEditingController();
   bool hide = true;
 
   @override
@@ -645,7 +720,7 @@ class _LoginCardState extends State<LoginCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Inicia sesión',
+            'Inicia sesión ✨',
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: const Color(0xFF073F50),
@@ -656,6 +731,7 @@ class _LoginCardState extends State<LoginCard> {
             controller: emailCtrl,
             decoration: const InputDecoration(
               labelText: 'Correo',
+              hintText: 'tu@correo.com',
               prefixIcon: Icon(Icons.mail_outline),
             ),
           ),
@@ -665,6 +741,7 @@ class _LoginCardState extends State<LoginCard> {
             obscureText: hide,
             decoration: InputDecoration(
               labelText: 'Contraseña',
+              hintText: '••••••••',
               prefixIcon: const Icon(Icons.lock_outline),
               suffixIcon: IconButton(
                 icon: Icon(hide ? Icons.visibility : Icons.visibility_off),
@@ -672,15 +749,7 @@ class _LoginCardState extends State<LoginCard> {
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: widget.onForgot,
-              child: const Text('¿Olvidaste tu contraseña?'),
-            ),
-          ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -704,7 +773,7 @@ class _LoginCardState extends State<LoginCard> {
               const Text('¿No tienes cuenta?'),
               TextButton(
                 onPressed: widget.onChangePage,
-                child: const Text('Crear cuenta'),
+                child: const Text('Crear cuenta 🚀'),
               ),
             ],
           ),
@@ -755,7 +824,7 @@ class _RegisterCardState extends State<RegisterCard> {
               ),
               const SizedBox(width: 6),
               Text(
-                'Crear cuenta',
+                'Crear cuenta 🚀',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: const Color(0xFF073F50),
@@ -768,6 +837,7 @@ class _RegisterCardState extends State<RegisterCard> {
             controller: nameCtrl,
             decoration: const InputDecoration(
               labelText: 'Nombre completo',
+              hintText: 'Tu nombre',
               prefixIcon: Icon(Icons.person_outline),
             ),
           ),
@@ -776,6 +846,7 @@ class _RegisterCardState extends State<RegisterCard> {
             controller: emailCtrl,
             decoration: const InputDecoration(
               labelText: 'Correo',
+              hintText: 'tu@correo.com',
               prefixIcon: Icon(Icons.mail_outline),
             ),
           ),
@@ -785,6 +856,7 @@ class _RegisterCardState extends State<RegisterCard> {
             obscureText: hide,
             decoration: InputDecoration(
               labelText: 'Contraseña',
+              hintText: '••••••••',
               prefixIcon: const Icon(Icons.lock_outline),
               suffixIcon: IconButton(
                 icon: Icon(hide ? Icons.visibility : Icons.visibility_off),
@@ -848,81 +920,6 @@ class _RegisterCardState extends State<RegisterCard> {
   }
 }
 
-class ResetCard extends StatefulWidget {
-  const ResetCard({
-    super.key,
-    required this.onReset,
-    required this.lastMessage,
-    required this.onBack,
-  });
-
-  final Future<void> Function(String email, BuildContext context) onReset;
-  final String lastMessage;
-  final VoidCallback onBack;
-
-  @override
-  State<ResetCard> createState() => _ResetCardState();
-}
-
-class _ResetCardState extends State<ResetCard> {
-  final emailCtrl = TextEditingController();
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              IconButton(
-                onPressed: widget.onBack,
-                icon: const Icon(Icons.arrow_back_ios_new),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'Recuperar contraseña',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF073F50),
-                    ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: emailCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Correo',
-              prefixIcon: Icon(Icons.mail_outline),
-            ),
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () =>
-                  widget.onReset(emailCtrl.text.trim(), context),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                backgroundColor: const Color(0xFF0A7E8C),
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Enviar enlace'),
-            ),
-          ),
-          const SizedBox(height: 12),
-          if (widget.lastMessage.isNotEmpty)
-            Text(
-              widget.lastMessage,
-              style: const TextStyle(color: Color(0xFF073F50)),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
 class StudentShell extends StatefulWidget {
   const StudentShell({
     super.key,
@@ -946,7 +943,7 @@ class StudentShell extends StatefulWidget {
   final List<Justificante> justificantes;
   final void Function(String code, BuildContext context) onJoinClass;
   final VoidCallback onLogout;
-  final void Function(ClassRoom cls, String fileName) onUploadSchedule;
+  final void Function(ClassRoom cls, String fileName, String fileUrl) onUploadSchedule;
   final void Function({
     required ClassRoom cls,
     required double mood,
@@ -992,9 +989,17 @@ class _StudentShellState extends State<StudentShell> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('feelday - Alumno'),
+        title: const Text('feelday - Alumno ✨'),
         backgroundColor: Colors.white,
         elevation: 0,
+        leading: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: CircleAvatar(
+            backgroundImage: const AssetImage('assets/images/logo.png'),
+            backgroundColor: Colors.white,
+            onBackgroundImageError: (_, __) {},
+          ),
+        ),
         actions: [
           IconButton(
             onPressed: widget.onLogout,
@@ -1039,7 +1044,7 @@ class StudentClassesPage extends StatefulWidget {
   final Map<int, ScheduleUpload> schedules;
   final List<MoodEntry> moodEntries;
   final void Function(String code, BuildContext context) onJoinClass;
-  final void Function(ClassRoom cls, String fileName) onUploadSchedule;
+  final void Function(ClassRoom cls, String fileName, String fileUrl) onUploadSchedule;
   final void Function({
     required ClassRoom cls,
     required double mood,
@@ -1063,7 +1068,7 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final joined = widget.classes.where((c) => c.joined).toList();
+    final joined = widget.classes.where((c) => c.enrollmentStatus != 'none' || c.joined).toList();
     final available = widget.classes;
 
     return SingleChildScrollView(
@@ -1071,6 +1076,54 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Container(
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0A7E8C), Color(0xFF0CB3C7)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black12,
+                  blurRadius: 8,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                const Icon(Icons.school, color: Colors.white, size: 40),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text(
+                        'Hola 👋',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      SizedBox(height: 6),
+                      Text(
+                        'Organiza tus clases, sube tu horario y comparte tu estado de ánimo.',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
           Card(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             child: Padding(
@@ -1128,10 +1181,15 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
           ...joined.map(
             (cls) => ClassCard(
               cls: cls,
-              trailing: IconButton(
-                icon: const Icon(Icons.arrow_forward_ios),
-                onPressed: () => _openClassDetail(context, cls),
-              ),
+              trailing: cls.enrollmentStatus == 'pending'
+                  ? const Chip(
+                      label: Text('Pendiente'),
+                      avatar: Icon(Icons.hourglass_bottom, size: 16),
+                    )
+                  : IconButton(
+                      icon: const Icon(Icons.arrow_forward_ios),
+                      onPressed: () => _openClassDetail(context, cls),
+                    ),
             ),
           ),
           const SizedBox(height: 16),
@@ -1164,6 +1222,7 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
   }
 
   Widget _buildMoodForm(BuildContext context, ClassRoom cls) {
+    final approved = cls.enrollmentStatus == 'approved';
     final schedule = widget.schedules[cls.id];
     _selectedFile = schedule?.fileName;
     return Card(
@@ -1174,16 +1233,19 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  cls.name,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF073F50),
+                Expanded(
+                  child: Text(
+                    cls.name,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF073F50),
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                const SizedBox(width: 8),
                 Chip(
                   label: Text(_selectedDay),
                   avatar: const Icon(Icons.calendar_today, size: 18),
@@ -1191,7 +1253,21 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
               ],
             ),
             const SizedBox(height: 12),
-            if (schedule == null)
+            if (!approved)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: const Text(
+                  'Tu solicitud está pendiente de aprobación por el profesor. Podrás enviar estado y justificantes cuando te aprueben.',
+                  style: TextStyle(color: Color(0xFF8C4A00)),
+                ),
+              )
+            else if (schedule == null)
               FilledButton.icon(
                 icon: const Icon(Icons.picture_as_pdf),
                 label: const Text('Subir horario (PDF)'),
@@ -1216,14 +1292,14 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
                 ),
               ],
             ),
-            Slider(
-              value: _mood,
-              onChanged: (v) => setState(() => _mood = v),
-              min: 0,
-              max: 100,
-              activeColor: const Color(0xFF0A7E8C),
-              inactiveColor: const Color(0xFFBFD8DF),
-            ),
+              Slider(
+                value: _mood,
+                onChanged: approved ? (v) => setState(() => _mood = v) : null,
+                min: 0,
+                max: 100,
+                activeColor: const Color(0xFF0A7E8C),
+                inactiveColor: const Color(0xFFBFD8DF),
+              ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1249,12 +1325,13 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
                 labelText: 'Comentario',
                 hintText: '¿Qué pasó hoy?',
               ),
+              enabled: approved,
             ),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _selectedFile == null
+                onPressed: !approved
                     ? null
                     : () {
                         widget.onSubmitMood(
@@ -1262,7 +1339,7 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
                           mood: _mood,
                           comment: commentCtrl.text,
                           day: _selectedDay,
-                          scheduleFileName: _selectedFile ?? 'Horario',
+                          scheduleFileName: _selectedFile ?? '',
                         );
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
@@ -1309,36 +1386,25 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
   }
 
   void _promptFile(BuildContext context, ClassRoom cls) {
-    final controller = TextEditingController(text: 'horario.pdf');
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Seleccionar PDF'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Nombre del archivo',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () {
-              widget.onUploadSchedule(cls, controller.text.trim());
-              setState(() => _selectedFile = controller.text.trim());
-              Navigator.pop(context);
-            },
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF0A7E8C),
-            ),
-            child: const Text('Usar archivo'),
-          ),
-        ],
-      ),
-    );
+    FilePicker.platform
+        .pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['pdf'],
+          withReadStream: true,
+        )
+        .then((result) {
+      if (result == null) return;
+      final file = result.files.single;
+      final name = file.name.isNotEmpty ? file.name : 'horario.pdf';
+      final path = file.path ?? '';
+      widget.onUploadSchedule(cls, name, path.isNotEmpty ? path : name);
+      setState(() {
+        _selectedFile = name;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Horario seleccionado: $name')),
+      );
+    });
   }
 
   void _openClassDetail(BuildContext context, ClassRoom cls) {
@@ -1372,9 +1438,25 @@ class ClassCard extends StatelessWidget {
       child: ListTile(
         title: Text(
           cls.name,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF073F50)),
         ),
-        subtitle: Text('Código: ${cls.code}\nProfesor: ${cls.teacherEmail}'),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Código: ${cls.code}'),
+            Text('Profesor: ${cls.teacherEmail}'),
+            if (cls.enrollmentStatus != 'none')
+              Text(
+                'Estado: ${cls.enrollmentStatus}',
+                style: TextStyle(
+                  color: cls.enrollmentStatus == 'approved'
+                      ? const Color(0xFF0B8A3A)
+                      : const Color(0xFF8C4A00),
+                ),
+              ),
+          ],
+        ),
         isThreeLine: true,
         trailing: trailing,
       ),
@@ -1453,9 +1535,7 @@ class _JustificantesPageState extends State<JustificantesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final joined = widget.classes
-        .where((c) => c.studentEmails.contains(widget.user.email))
-        .toList();
+    final joined = widget.classes.where((c) => c.enrollmentStatus == 'approved').toList();
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -1645,6 +1725,7 @@ class TeacherShell extends StatefulWidget {
     required this.onCreateClass,
     required this.onLogout,
     required this.onUpdateJustificante,
+    required this.onReviewEnrollment,
   });
 
   final UserAccount user;
@@ -1655,6 +1736,8 @@ class TeacherShell extends StatefulWidget {
   final VoidCallback onLogout;
   final void Function(Justificante justificante, JustificanteStatus status)
       onUpdateJustificante;
+  final void Function(int enrollmentId, String status, BuildContext context)
+      onReviewEnrollment;
 
   @override
   State<TeacherShell> createState() => _TeacherShellState();
@@ -1678,14 +1761,23 @@ class _TeacherShellState extends State<TeacherShell> {
         moodEntries: widget.moodEntries,
         justificantes: widget.justificantes,
         onUpdateJustificante: widget.onUpdateJustificante,
+        onReviewEnrollment: widget.onReviewEnrollment,
       ),
     ];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('feelday - Profesor'),
+        title: const Text('feelday - Profesor 🎓'),
         backgroundColor: Colors.white,
         elevation: 0,
+        leading: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: CircleAvatar(
+            backgroundImage: const AssetImage('assets/images/logo.png'),
+            backgroundColor: Colors.white,
+            onBackgroundImageError: (_, __) {},
+          ),
+        ),
         actions: [
           IconButton(
             onPressed: widget.onLogout,
@@ -1812,6 +1904,7 @@ class TeacherPanel extends StatelessWidget {
     required this.moodEntries,
     required this.justificantes,
     required this.onUpdateJustificante,
+    required this.onReviewEnrollment,
   });
 
   final List<ClassRoom> classes;
@@ -1819,17 +1912,59 @@ class TeacherPanel extends StatelessWidget {
   final List<Justificante> justificantes;
   final void Function(Justificante justificante, JustificanteStatus status)
       onUpdateJustificante;
+  final void Function(int enrollmentId, String status, BuildContext context)
+      onReviewEnrollment;
 
   @override
   Widget build(BuildContext context) {
     final allMoodEntries = moodEntries;
     final allJustificantes = justificantes;
+    final pending = classes
+        .expand((c) => c.pendingEnrollments.map((e) => {'req': e, 'className': c.name}))
+        .toList();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (pending.isNotEmpty) ...[
+            const Text(
+              'Solicitudes de ingreso',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF073F50),
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...pending.map((p) {
+              final EnrollmentRequest req = p['req'] as EnrollmentRequest;
+              final className = p['className'] as String;
+              return Card(
+                child: ListTile(
+                  title: Text('${req.studentName} (${req.studentEmail})'),
+                  subtitle: Text('Clase: $className · Estado: ${req.status}'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Aprobar',
+                        onPressed: () => onReviewEnrollment(req.id, 'approved', context),
+                        icon: const Icon(Icons.check_circle_outline, color: Color(0xFF0B8A3A)),
+                      ),
+                      IconButton(
+                        tooltip: 'Rechazar',
+                        onPressed: () => onReviewEnrollment(req.id, 'rejected', context),
+                        icon: const Icon(Icons.cancel_outlined, color: Color(0xFFC1121F)),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+            const SizedBox(height: 16),
+          ],
           const Text(
             'Estados de ánimo',
             style: TextStyle(
@@ -1870,7 +2005,10 @@ class TeacherPanel extends StatelessWidget {
             (j) => Card(
               child: ListTile(
                 leading: const Icon(Icons.image_outlined),
-                title: Text('${j.studentEmail} · ${j.className}'),
+                title: Text(
+                  '${j.studentEmail} · ${j.className}',
+                  overflow: TextOverflow.ellipsis,
+                ),
                 subtitle: Text('${j.imageLabel}\n${j.reason}'),
                 isThreeLine: true,
                 trailing: Row(

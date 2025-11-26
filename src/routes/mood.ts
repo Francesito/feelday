@@ -44,8 +44,10 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     const enrollment = await prisma.classEnrollment.findFirst({
       where: { classId: Number(classId), studentId: req.user.userId },
     });
-    if (!enrollment) {
-      return res.status(403).json({ error: 'No estás inscrito en esta clase' });
+    if (!enrollment || enrollment.status !== 'approved') {
+      return res
+        .status(403)
+        .json({ error: 'No estás inscrito en esta clase o falta aprobación del profesor' });
     }
     const created = await prisma.moodEntry.create({
       data: {

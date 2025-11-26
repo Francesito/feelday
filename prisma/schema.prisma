@@ -18,6 +18,12 @@ enum JustificanteStatus {
   rejected
 }
 
+enum EnrollmentStatus {
+  pending
+  approved
+  rejected
+}
+
 model User {
   id          Int       @id @default(autoincrement())
   email       String    @unique @db.VarChar(190)
@@ -54,6 +60,7 @@ model ClassEnrollment {
   student    User  @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   studentId  Int
   createdAt  DateTime @default(now())
+  status     EnrollmentStatus @default(pending)
 
   @@unique([classId, studentId])
 }

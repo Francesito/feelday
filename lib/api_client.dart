@@ -11,6 +11,7 @@ class ApiClient {
   Map<String, String> _headers() {
     return {
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
     };
   }
@@ -77,6 +78,15 @@ class ApiClient {
     return _decode(res);
   }
 
+  Future<Map<String, dynamic>> updateEnrollmentStatus(int id, String status) async {
+    final res = await http.patch(
+      Uri.parse('$baseUrl/classes/enrollments/$id'),
+      headers: _headers(),
+      body: jsonEncode({'status': status}),
+    );
+    return _decode(res);
+  }
+
   Future<List<dynamic>> fetchMoodEntries() async {
     final res = await http.get(Uri.parse('$baseUrl/mood'), headers: _headers());
     final data = _decode(res);
@@ -135,9 +145,26 @@ class ApiClient {
   }
 
   dynamic _decode(http.Response res) {
-    final body = res.body.isEmpty ? {} : jsonDecode(res.body);
+    dynamic body;
+    try {
+      body = res.body.isEmpty ? {} : jsonDecode(res.body);
+    } catch (_) {
+      // Respuesta no JSON (p.e. HTML de error)
+      final raw = res.body;
+      if (raw.contains('<!DOCTYPE html') || raw.contains('<html')) {
+        body = {'raw': 'El servidor devolvió HTML (status ${res.statusCode}).'};
+      } else {
+        body = {'raw': raw};
+      }
+    }
+
     if (res.statusCode >= 200 && res.statusCode < 300) return body;
-    final error = body is Map && body['error'] != null ? body['error'] : 'Error ${res.statusCode}';
-    throw Exception(error);
+
+    if (body is Map && body['error'] != null) {
+      throw Exception(body['error']);
+    }
+
+    final raw = body is Map && body['raw'] != null ? body['raw'] : res.body;
+    throw Exception(raw.toString().isNotEmpty ? raw : 'Error ${res.statusCode}');
   }
 }
