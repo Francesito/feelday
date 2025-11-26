@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { randomBytes } from 'crypto';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
 
 const router = Router();
@@ -16,10 +17,12 @@ router.post('/register', async (req, res) => {
     if (!['student', 'teacher'].includes(role)) {
       return res.status(400).json({ error: 'Rol inválido' });
     }
+
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
       return res.status(409).json({ error: 'Correo ya registrado' });
     }
+
     const hashed = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
       data: { email, password: hashed, fullName, role },
@@ -31,9 +34,31 @@ router.post('/register', async (req, res) => {
       { expiresIn: '7d' },
     );
     return res.json({ user, token });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Error interno' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Error desconocido';
+    console.error('[auth/register] Error registrando usuario', {
+      email: req.body?.email,
+      role: req.body?.role,
+      message,
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      return res.status(400).json({
+        error: 'Error al guardar en base de datos',
+        code: err.code,
+        meta: err.meta,
+      });
+    }
+
+    if (err instanceof Prisma.PrismaClientValidationError) {
+      return res.status(400).json({
+        error: 'Datos inválidos para registrar usuario',
+        detail: message,
+      });
+    }
+
+    return res.status(500).json({ error: 'Error interno al registrar', detail: message });
   }
 });
 
