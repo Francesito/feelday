@@ -26,4 +26,9 @@ app.use('/justificantes', justificantesRoutes);
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`feelday backend escuchando en puerto ${port}`);
+  if (process.env.NODE_ENV === 'production') {
+    console.log('Ambiente: produccion (Render)');
+  } else {
+    console.log(`Ambiente: ${process.env.NODE_ENV || 'desarrollo'}`);
+  }
 });
