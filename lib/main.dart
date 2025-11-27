@@ -206,11 +206,13 @@ class _FeeldayAppState extends State<FeeldayApp> {
                 onLogout: _logout,
                 onUploadSchedule: _uploadSchedule,
                 onSubmitMood: _submitMood,
-                onSubmitJustificante: ({required cls, required reason, required imageLabel}) =>
+                onSubmitJustificante:
+                    ({required cls, required reason, required imageLabel, required imageUrlOverride}) =>
                     _submitJustificante(
                   cls: cls,
                   reason: reason,
                   imageLabel: imageLabel,
+                  imageUrlOverride: imageUrlOverride,
                   context: context,
                 ),
                 onRefresh: _refreshData,
@@ -434,6 +436,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
       setState(() {
         _allJustificantes.insert(0, j);
       });
+      await _refreshData();
       messenger.showSnackBar(
         const SnackBar(content: Text('Justificante enviado')),
       );
@@ -1533,13 +1536,19 @@ class JustificantesPage extends StatefulWidget {
 }
 
 class _JustificantesPageState extends State<JustificantesPage> {
-  ClassRoom? selectedClass;
+  int? selectedClassId;
   String? selectedFileName;
   String? selectedFileUrl;
 
   @override
   Widget build(BuildContext context) {
     final joined = widget.classes.where((c) => c.enrollmentStatus == 'approved').toList();
+    // Asegura que el valor seleccionado exista en la lista actual
+    if (selectedClassId != null && !joined.any((c) => c.id == selectedClassId)) {
+      selectedClassId = null;
+    }
+    final selectedClass =
+        selectedClassId == null ? null : joined.firstWhere((c) => c.id == selectedClassId);
     final myJusts = widget.justificantes.where((j) => j.studentId == widget.user.id).toList();
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -1570,32 +1579,32 @@ class _JustificantesPageState extends State<JustificantesPage> {
             style: const TextStyle(color: Color(0xFF073F50), fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
-          DropdownButton<ClassRoom>(
-            value: selectedClass,
+          DropdownButton<int>(
+            value: selectedClassId,
             hint: const Text('Selecciona clase'),
             items: joined
                 .map((c) => DropdownMenuItem(
-                      value: c,
+                      value: c.id,
                       child: Text(c.name),
                     ))
                 .toList(),
-            onChanged: (c) => setState(() => selectedClass = c),
+            onChanged: (id) => setState(() => selectedClassId = id),
           ),
           const SizedBox(height: 12),
-        if (selectedClass != null)
-          JustificanteForm(
-            cls: selectedClass!,
-            onSubmit: widget.onSubmitJustificante,
-            user: widget.user,
-            onPickFile: (name, url) {
-              setState(() {
-                selectedFileName = name;
-                selectedFileUrl = url;
-              });
-            },
-            selectedFileName: selectedFileName,
-            selectedFileUrl: selectedFileUrl,
-          ),
+          if (selectedClass != null)
+            JustificanteForm(
+              cls: selectedClass!,
+              onSubmit: widget.onSubmitJustificante,
+              user: widget.user,
+              onPickFile: (name, url) {
+                setState(() {
+                  selectedFileName = name;
+                  selectedFileUrl = url;
+                });
+              },
+              selectedFileName: selectedFileName,
+              selectedFileUrl: selectedFileUrl,
+            ),
           const SizedBox(height: 12),
           if (selectedClass != null)
             ...widget.justificantes
@@ -1666,7 +1675,7 @@ class JustificanteForm extends StatefulWidget {
     required String imageLabel,
     required String imageUrlOverride,
   }) onSubmit;
-  final void Function(String name, String url) onPickFile;
+  final void Function(String? name, String? url) onPickFile;
   final String? selectedFileName;
   final String? selectedFileUrl;
 
@@ -1733,10 +1742,12 @@ class _JustificanteFormState extends State<JustificanteForm> {
                           reason: reasonCtrl.text.trim(),
                           imageLabel: widget.selectedFileName ?? 'archivo.pdf',
                           imageUrlOverride:
-                              widget.selectedFileUrl ?? widget.selectedFileName ?? 'archivo.pdf',
+                              widget.selectedFileUrl?.isNotEmpty == true
+                                  ? widget.selectedFileUrl!
+                                  : (widget.selectedFileName ?? 'archivo.pdf'),
                         );
                         reasonCtrl.clear();
-                        widget.onPickFile('', '');
+                        widget.onPickFile(null, null);
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Justificante enviado')),
                         );
