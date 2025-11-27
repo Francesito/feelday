@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
 import { AuthenticatedRequest } from '../types';
 import { requireAuth } from '../middleware/auth';
@@ -43,7 +44,11 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     const enrollment = await prisma.classEnrollment.findFirst({
       where: { classId: Number(classId), studentId: req.user.userId },
     });
-    if (!enrollment || enrollment.status !== 'approved') {
+    // Si la inscripción existe pero tiene status distinto a approved, bloquea; si no hay status (DB vieja), permite.
+    if (!enrollment) {
+      return res.status(403).json({ error: 'No estás inscrito en esta clase' });
+    }
+    if ('status' in enrollment && (enrollment as any).status !== 'approved') {
       return res
         .status(403)
         .json({ error: 'No estás inscrito en esta clase o falta aprobación del profesor' });
@@ -59,8 +64,20 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     });
     return res.status(201).json(justificante);
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Error interno' });
+    console.error('[justificantes] Error creando', err);
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      // P2021/P2022 se dan cuando la columna status no existe en DB
+      if (err.code === 'P2021' || err.code === 'P2022') {
+        return res.status(500).json({
+          error: 'La columna status en ClassEnrollment no existe en la base. Aplica la migración de inscripciones.',
+          detail: err.message,
+        });
+      }
+    }
+    return res.status(500).json({
+      error: 'Error interno al crear justificante',
+      detail: err instanceof Error ? err.message : String(err),
+    });
   }
 });
 
@@ -86,8 +103,16 @@ router.patch('/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
     });
     return res.json(updated);
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Error interno' });
+    console.error('[justificantes] Error actualizando', err);
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (err.code === 'P2021' || err.code === 'P2022') {
+        return res.status(500).json({
+          error: 'La columna status en ClassEnrollment no existe en la base. Aplica la migración de inscripciones.',
+          detail: err.message,
+        });
+      }
+    }
+    return res.status(500).json({ error: 'Error interno', detail: err instanceof Error ? err.message : String(err) });
   }
 });
 
