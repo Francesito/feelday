@@ -41,6 +41,12 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     if (!classId || !reason || !imageUrl || !imageName) {
       return res.status(400).json({ error: 'Faltan campos' });
     }
+    // Permitir data URLs de imágenes; rechazar tamaños excesivos
+    if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
+      if (imageUrl.length > 2_000_000) {
+        return res.status(413).json({ error: 'Imagen demasiado grande (>2MB)' });
+      }
+    }
     const enrollment = await prisma.classEnrollment.findFirst({
       where: { classId: Number(classId), studentId: req.user.userId },
     });
@@ -58,8 +64,8 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
         classId: Number(classId),
         studentId: req.user.userId,
         reason,
-        imageUrl,
-        imageName,
+        imageUrl: imageUrl.toString(),
+        imageName: imageName.toString(),
       },
     });
     return res.status(201).json(justificante);

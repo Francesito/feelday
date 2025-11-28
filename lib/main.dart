@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'api_client.dart';
@@ -136,6 +137,7 @@ class Justificante {
     required this.className,
     required this.reason,
     required this.imageLabel,
+    required this.imageUrl,
     this.status = JustificanteStatus.pending,
   });
 
@@ -146,6 +148,7 @@ class Justificante {
   final String className;
   final String reason;
   final String imageLabel;
+  final String imageUrl;
   JustificanteStatus status;
 }
 
@@ -159,6 +162,7 @@ class FeeldayApp extends StatefulWidget {
 }
 
 class _FeeldayAppState extends State<FeeldayApp> {
+  final GlobalKey<ScaffoldMessengerState> _messengerKey = GlobalKey<ScaffoldMessengerState>();
   final ApiClient _api = ApiClient(baseUrl: 'https://feelday.onrender.com');
   final List<ClassRoom> _classes = [];
   final List<MoodEntry> _allMoodEntries = [];
@@ -232,6 +236,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
       debugShowCheckedModeBanner: false,
       title: 'feelday',
       theme: theme,
+      scaffoldMessengerKey: _messengerKey,
       home: Stack(
         children: [
           homeWidget,
@@ -410,13 +415,12 @@ class _FeeldayAppState extends State<FeeldayApp> {
     required BuildContext context,
   }) async {
     if (cls.enrollmentStatus != 'approved') {
-      ScaffoldMessenger.of(context).showSnackBar(
+      _messengerKey.currentState?.showSnackBar(
         const SnackBar(content: Text('Tu solicitud a la clase está pendiente de aprobación.')),
       );
       return;
     }
     if (_currentUser == null) return;
-    final messenger = ScaffoldMessenger.of(context);
     try {
       final res = await _api.submitJustificante({
         'classId': cls.id,
@@ -432,16 +436,17 @@ class _FeeldayAppState extends State<FeeldayApp> {
         className: cls.name,
         reason: reason,
         imageLabel: imageLabel,
+        imageUrl: imageUrlOverride,
       );
       setState(() {
         _allJustificantes.insert(0, j);
       });
       await _refreshData();
-      messenger.showSnackBar(
+      _messengerKey.currentState?.showSnackBar(
         const SnackBar(content: Text('Justificante enviado')),
       );
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+      _messengerKey.currentState?.showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
@@ -449,12 +454,23 @@ class _FeeldayAppState extends State<FeeldayApp> {
     Justificante justificante,
     JustificanteStatus status,
   ) async {
+    final messenger = _messengerKey.currentState;
     try {
       await _api.updateJustificanteStatus(justificante.id, status.name);
       setState(() {
         justificante.status = status;
       });
-    } catch (_) {}
+      await _refreshData();
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(status == JustificanteStatus.approved
+              ? 'Justificante aprobado'
+              : 'Justificante actualizado'),
+        ),
+      );
+    } catch (e) {
+      messenger?.showSnackBar(SnackBar(content: Text(e.toString())));
+    }
   }
 
   Future<void> _reviewEnrollment(
@@ -590,6 +606,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
             className: cls['name']?.toString() ?? '',
             reason: j['reason']?.toString() ?? '',
             imageLabel: j['imageName']?.toString() ?? '',
+            imageUrl: j['imageUrl']?.toString() ?? '',
             status: _statusFromString(j['status']?.toString()),
           );
         }));
@@ -1538,7 +1555,7 @@ class JustificantesPage extends StatefulWidget {
 class _JustificantesPageState extends State<JustificantesPage> {
   int? selectedClassId;
   String? selectedFileName;
-  String? selectedFileUrl;
+  String? selectedImageDataUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -1596,14 +1613,14 @@ class _JustificantesPageState extends State<JustificantesPage> {
               cls: selectedClass!,
               onSubmit: widget.onSubmitJustificante,
               user: widget.user,
-              onPickFile: (name, url) {
+              onPickFile: (name, dataUrl) {
                 setState(() {
                   selectedFileName = name;
-                  selectedFileUrl = url;
+                  selectedImageDataUrl = dataUrl;
                 });
               },
               selectedFileName: selectedFileName,
-              selectedFileUrl: selectedFileUrl,
+              selectedFileUrl: selectedImageDataUrl,
             ),
           const SizedBox(height: 12),
           if (selectedClass != null)
@@ -1614,7 +1631,7 @@ class _JustificantesPageState extends State<JustificantesPage> {
                 .map(
                   (j) => Card(
                     child: ListTile(
-                      leading: const Icon(Icons.image_outlined),
+                      leading: _buildThumb(j.imageUrl, j.imageLabel),
                       title: Text(j.imageLabel),
                       subtitle: Text(j.reason),
                       trailing: Chip(
@@ -1654,6 +1671,32 @@ class _JustificantesPageState extends State<JustificantesPage> {
         return const Color(0xFFC1121F);
     }
   }
+
+  Widget _buildThumb(String url, String label) {
+    if (url.startsWith('data:image/')) {
+      try {
+        final base64Data = url.split(',').last;
+        final bytes = base64Decode(base64Data);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(bytes, width: 48, height: 48, fit: BoxFit.cover),
+        );
+      } catch (_) {}
+    }
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: const Color(0xFFE5F3F6),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: url.isNotEmpty
+          ? Image.network(url, fit: BoxFit.cover, errorBuilder: (_, __, ___) {
+              return const Icon(Icons.image_outlined);
+            })
+          : const Icon(Icons.image_outlined),
+    );
+  }
 }
 
 class JustificanteForm extends StatefulWidget {
@@ -1675,7 +1718,7 @@ class JustificanteForm extends StatefulWidget {
     required String imageLabel,
     required String imageUrlOverride,
   }) onSubmit;
-  final void Function(String? name, String? url) onPickFile;
+  final void Function(String? name, String? dataUrl) onPickFile;
   final String? selectedFileName;
   final String? selectedFileUrl;
 
@@ -1713,23 +1756,26 @@ class _JustificanteFormState extends State<JustificanteForm> {
               ),
             ),
             const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: () async {
-                final res = await FilePicker.platform.pickFiles(
-                  type: FileType.custom,
-                  allowedExtensions: ['pdf'],
-                  withReadStream: true,
-                );
-                if (res == null) return;
-                final f = res.files.single;
-                widget.onPickFile(f.name, f.path ?? f.name);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('PDF seleccionado: ${f.name}')),
-                );
-              },
-              icon: const Icon(Icons.picture_as_pdf),
-              label: Text(fileName),
-            ),
+          FilledButton.icon(
+            onPressed: () async {
+              final res = await FilePicker.platform.pickFiles(
+                type: FileType.custom,
+                allowedExtensions: ['png', 'jpg', 'jpeg', 'webp'],
+                withData: true,
+              );
+              if (res == null) return;
+              final f = res.files.single;
+              if (f.bytes == null) return;
+              final ext = (f.extension ?? 'png').toLowerCase();
+              final dataUrl = 'data:image/$ext;base64,${base64Encode(f.bytes!)}';
+              widget.onPickFile(f.name, dataUrl);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Imagen seleccionada: ${f.name}')),
+              );
+            },
+            icon: const Icon(Icons.image_outlined),
+            label: Text(fileName),
+          ),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
@@ -1744,7 +1790,7 @@ class _JustificanteFormState extends State<JustificanteForm> {
                           imageUrlOverride:
                               widget.selectedFileUrl?.isNotEmpty == true
                                   ? widget.selectedFileUrl!
-                                  : (widget.selectedFileName ?? 'archivo.pdf'),
+                                  : (widget.selectedFileName ?? 'archivo'),
                         );
                         reasonCtrl.clear();
                         widget.onPickFile(null, null);
@@ -2055,7 +2101,7 @@ class TeacherPanel extends StatelessWidget {
           ...allJustificantes.map(
             (j) => Card(
               child: ListTile(
-                leading: const Icon(Icons.image_outlined),
+                leading: _buildThumb(j.imageUrl, j.imageLabel),
                 title: Text(
                   '${j.studentEmail} · ${j.className}',
                   overflow: TextOverflow.ellipsis,
@@ -2093,5 +2139,31 @@ class TeacherPanel extends StatelessWidget {
     if (mood <= 60) return '😐';
     if (mood <= 80) return '🙂';
     return '😄';
+  }
+
+  Widget _buildThumb(String url, String label) {
+    if (url.startsWith('data:image/')) {
+      try {
+        final base64Data = url.split(',').last;
+        final bytes = base64Decode(base64Data);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(bytes, width: 48, height: 48, fit: BoxFit.cover),
+        );
+      } catch (_) {}
+    }
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: const Color(0xFFE5F3F6),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: url.isNotEmpty
+          ? Image.network(url, fit: BoxFit.cover, errorBuilder: (_, __, ___) {
+              return const Icon(Icons.image_outlined);
+            })
+          : const Icon(Icons.image_outlined),
+    );
   }
 }
