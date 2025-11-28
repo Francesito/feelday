@@ -133,6 +133,7 @@ class Justificante {
     required this.id,
     required this.studentId,
     required this.studentEmail,
+    required this.studentName,
     required this.classId,
     required this.className,
     required this.reason,
@@ -144,6 +145,7 @@ class Justificante {
   final int id;
   final int studentId;
   final String studentEmail;
+  final String studentName;
   final int classId;
   final String className;
   final String reason;
@@ -432,6 +434,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
         id: res['id'] as int? ?? Random().nextInt(999999),
         studentId: _currentUser!.id,
         studentEmail: _currentUser!.email,
+        studentName: _currentUser!.displayName,
         classId: cls.id,
         className: cls.name,
         reason: reason,
@@ -602,6 +605,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
             id: j['id'] as int? ?? 0,
             studentId: student['id'] as int? ?? 0,
             studentEmail: student['email']?.toString() ?? '',
+            studentName: student['fullName']?.toString() ?? '',
             classId: cls['id'] as int? ?? 0,
             className: cls['name']?.toString() ?? '',
             reason: j['reason']?.toString() ?? '',
@@ -1629,17 +1633,23 @@ class _JustificantesPageState extends State<JustificantesPage> {
                     j.studentEmail == widget.user.email &&
                     j.classId == selectedClass!.id)
                 .map(
-                  (j) => Card(
-                    child: ListTile(
-                      leading: _buildThumb(j.imageUrl, j.imageLabel),
-                      title: Text(j.imageLabel),
-                      subtitle: Text(j.reason),
-                      trailing: Chip(
-                        label: Text(_statusLabel(j.status)),
-                        backgroundColor: _statusColor(j.status).withValues(alpha: 0.15),
-                        labelStyle: TextStyle(
-                          color: _statusColor(j.status),
-                          fontWeight: FontWeight.w700,
+                  (j) => TweenAnimationBuilder<double>(
+                    key: ValueKey('std-just-${j.id}'),
+                    duration: const Duration(milliseconds: 220),
+                    tween: Tween(begin: 0.95, end: 1),
+                    builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+                    child: Card(
+                      child: ListTile(
+                        leading: _buildThumb(j.imageUrl, j.imageLabel),
+                        title: Text(j.imageLabel),
+                        subtitle: Text(j.reason),
+                        trailing: Chip(
+                          label: Text(_statusLabel(j.status)),
+                          backgroundColor: _statusColor(j.status).withValues(alpha: 0.15),
+                          labelStyle: TextStyle(
+                            color: _statusColor(j.status),
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                     ),
@@ -2099,31 +2109,38 @@ class TeacherPanel extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           ...allJustificantes.map(
-            (j) => Card(
-              child: ListTile(
-                leading: _buildThumb(j.imageUrl, j.imageLabel),
-                title: Text(
-                  '${j.studentEmail} · ${j.className}',
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text('${j.imageLabel}\n${j.reason}'),
-                isThreeLine: true,
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: 'Aprobar',
-                      onPressed: () =>
-                          onUpdateJustificante(j, JustificanteStatus.approved),
-                      icon: const Icon(Icons.check_circle_outline, color: Color(0xFF0B8A3A)),
-                    ),
-                    IconButton(
-                      tooltip: 'Rechazar',
-                      onPressed: () =>
-                          onUpdateJustificante(j, JustificanteStatus.rejected),
-                      icon: const Icon(Icons.cancel_outlined, color: Color(0xFFC1121F)),
-                    ),
-                  ],
+            (j) => TweenAnimationBuilder<double>(
+              key: ValueKey('teach-just-${j.id}'),
+              duration: const Duration(milliseconds: 230),
+              tween: Tween(begin: 0.95, end: 1),
+              builder: (context, scale, child) =>
+                  Transform.scale(scale: scale, child: child),
+              child: Card(
+                child: ListTile(
+                  leading: _buildThumb(j.imageUrl, j.imageLabel),
+                  title: Text(
+                    '${j.studentName.isNotEmpty ? j.studentName : j.studentEmail} · ${j.className}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text('${j.imageLabel}\n${j.reason}'),
+                  isThreeLine: true,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Aprobar',
+                        onPressed: () =>
+                            onUpdateJustificante(j, JustificanteStatus.approved),
+                        icon: const Icon(Icons.check_circle_outline, color: Color(0xFF0B8A3A)),
+                      ),
+                      IconButton(
+                        tooltip: 'Rechazar',
+                        onPressed: () =>
+                            onUpdateJustificante(j, JustificanteStatus.rejected),
+                        icon: const Icon(Icons.cancel_outlined, color: Color(0xFFC1121F)),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
