@@ -106,6 +106,7 @@ class ScheduleUpload {
 
 class MoodEntry {
   MoodEntry({
+    required this.id,
     required this.studentId,
     required this.studentEmail,
     required this.studentName,
@@ -119,6 +120,7 @@ class MoodEntry {
     this.teacherRead = false,
   });
 
+  final int id;
   final int studentId;
   final String studentEmail;
   final String studentName;
@@ -239,6 +241,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
                 onLogout: _logout,
                 onUpdateJustificante: _updateJustificanteStatus,
                 onReviewEnrollment: _reviewEnrollment,
+                onMarkMoodRead: _markMoodRead,
               );
 
     return MaterialApp(
@@ -398,8 +401,10 @@ class _FeeldayAppState extends State<FeeldayApp> {
         'scheduleFileName': scheduleFileName,
       });
       final entry = MoodEntry(
+        id: res['id'] as int? ?? Random().nextInt(999999),
         studentId: _currentUser!.id,
         studentEmail: _currentUser!.email,
+        studentName: _currentUser!.displayName,
         classId: cls.id,
         className: cls.name,
         day: day,
@@ -597,6 +602,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
           final student = m['student'] as Map<String, dynamic>? ?? {};
           final cls = m['class'] as Map<String, dynamic>? ?? {};
           return MoodEntry(
+            id: m['id'] as int? ?? 0,
             studentId: student['id'] as int? ?? 0,
             studentEmail: student['email']?.toString() ?? '',
             studentName: student['fullName']?.toString() ?? '',
@@ -1859,6 +1865,7 @@ class TeacherShell extends StatefulWidget {
     required this.onLogout,
     required this.onUpdateJustificante,
     required this.onReviewEnrollment,
+    required this.onMarkMoodRead,
   });
 
   final UserAccount user;
@@ -1871,6 +1878,7 @@ class TeacherShell extends StatefulWidget {
       onUpdateJustificante;
   final void Function(int enrollmentId, String status, BuildContext context)
       onReviewEnrollment;
+  final void Function(int moodId) onMarkMoodRead;
 
   @override
   State<TeacherShell> createState() => _TeacherShellState();
@@ -1895,7 +1903,7 @@ class _TeacherShellState extends State<TeacherShell> {
         justificantes: widget.justificantes,
         onUpdateJustificante: widget.onUpdateJustificante,
         onReviewEnrollment: widget.onReviewEnrollment,
-        onMarkMoodRead: _markMoodRead,
+        onMarkMoodRead: widget.onMarkMoodRead,
       ),
     ];
 
@@ -2102,7 +2110,7 @@ class TeacherPanel extends StatelessWidget {
             const SizedBox(height: 16),
           ],
           const Text(
-            'Estados de ánimo',
+            'Panel de emociones',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w700,
@@ -2122,9 +2130,30 @@ class TeacherPanel extends StatelessWidget {
                     : const Color(0xFFFFF4E5),
                 child: ListTile(
                   leading: Text(_emojiForMood(m.mood), style: const TextStyle(fontSize: 26)),
-                  title: Text('${m.studentEmail} · ${m.className} (${m.day})'),
-                  subtitle: Text('${m.comment}\nArchivo: ${m.scheduleFileName}'),
-                  isThreeLine: true,
+                  title: Text('${m.studentName.isNotEmpty ? m.studentName : m.studentEmail} · ${m.className} (${m.day})'),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(m.comment),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.picture_as_pdf, size: 18, color: Color(0xFFB00020)),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              m.scheduleFileName.isNotEmpty
+                                  ? m.scheduleFileName
+                                  : 'Sin horario adjunto',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  isThreeLine: false,
                   trailing: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -2138,7 +2167,7 @@ class TeacherPanel extends StatelessWidget {
                       const SizedBox(height: 6),
                       if (!m.teacherRead)
                         TextButton(
-                          onPressed: () => onMarkMoodRead(m.studentId),
+                          onPressed: () => onMarkMoodRead(m.id),
                           child: const Text('Marcar leído'),
                         )
                       else
