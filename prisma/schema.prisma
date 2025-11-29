@@ -88,6 +88,7 @@ model MoodEntry {
   moodValue         Int
   comment           String?
   scheduleFileName  String?  @db.VarChar(255)
+  teacherRead       Boolean  @default(false)
   createdAt         DateTime @default(now())
 }
 

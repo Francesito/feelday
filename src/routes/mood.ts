@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../prisma';
 import { AuthenticatedRequest } from '../types';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
 
@@ -62,6 +62,28 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     return res.status(201).json(created);
   } catch (err) {
     console.error(err);
+    return res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.patch('/:id/read', requireAuth, requireRole('teacher'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const id = Number(req.params.id);
+    const entry = await prisma.moodEntry.findUnique({
+      where: { id },
+      include: { class: true },
+    });
+    if (!entry) return res.status(404).json({ error: 'No encontrado' });
+    if (entry.class.teacherId !== req.user!.userId) {
+      return res.status(403).json({ error: 'No tienes permiso para esta clase' });
+    }
+    const updated = await prisma.moodEntry.update({
+      where: { id },
+      data: { teacherRead: true },
+    });
+    return res.json(updated);
+  } catch (err) {
+    console.error('[mood] Error marcando como leído', err);
     return res.status(500).json({ error: 'Error interno' });
   }
 });

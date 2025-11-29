@@ -108,6 +108,7 @@ class MoodEntry {
   MoodEntry({
     required this.studentId,
     required this.studentEmail,
+    required this.studentName,
     required this.classId,
     required this.className,
     required this.day,
@@ -115,10 +116,12 @@ class MoodEntry {
     required this.comment,
     required this.scheduleFileName,
     required this.createdAt,
+    this.teacherRead = false,
   });
 
   final int studentId;
   final String studentEmail;
+  final String studentName;
   final int classId;
   final String className;
   final String day;
@@ -126,6 +129,7 @@ class MoodEntry {
   final String comment;
   final String scheduleFileName;
   final DateTime createdAt;
+  final bool teacherRead;
 }
 
 class Justificante {
@@ -500,6 +504,15 @@ class _FeeldayAppState extends State<FeeldayApp> {
     }
   }
 
+  Future<void> _markMoodRead(int moodId) async {
+    try {
+      await _api.markMoodAsRead(moodId);
+      await _refreshData();
+    } catch (e) {
+      _messengerKey.currentState?.showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
   Future<void> _refreshData() async {
     if (_currentUser == null) return;
     try {
@@ -586,6 +599,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
           return MoodEntry(
             studentId: student['id'] as int? ?? 0,
             studentEmail: student['email']?.toString() ?? '',
+            studentName: student['fullName']?.toString() ?? '',
             classId: cls['id'] as int? ?? (m['classId'] as int? ?? 0),
             className: cls['name']?.toString() ?? '',
             day: m['dayLabel']?.toString() ?? '',
@@ -595,6 +609,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
             createdAt: DateTime.parse(
               m['createdAt']?.toString() ?? DateTime.now().toIso8601String(),
             ),
+            teacherRead: m['teacherRead'] as bool? ?? false,
           );
         }));
 
@@ -1880,6 +1895,7 @@ class _TeacherShellState extends State<TeacherShell> {
         justificantes: widget.justificantes,
         onUpdateJustificante: widget.onUpdateJustificante,
         onReviewEnrollment: widget.onReviewEnrollment,
+        onMarkMoodRead: _markMoodRead,
       ),
     ];
 
@@ -2023,6 +2039,7 @@ class TeacherPanel extends StatelessWidget {
     required this.justificantes,
     required this.onUpdateJustificante,
     required this.onReviewEnrollment,
+    required this.onMarkMoodRead,
   });
 
   final List<ClassRoom> classes;
@@ -2032,6 +2049,7 @@ class TeacherPanel extends StatelessWidget {
       onUpdateJustificante;
   final void Function(int enrollmentId, String status, BuildContext context)
       onReviewEnrollment;
+  final void Function(int moodId) onMarkMoodRead;
 
   @override
   Widget build(BuildContext context) {
@@ -2093,17 +2111,39 @@ class TeacherPanel extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           ...allMoodEntries.map(
-            (m) => Card(
-              child: ListTile(
-                leading: Text(_emojiForMood(m.mood), style: const TextStyle(fontSize: 26)),
-                title: Text('${m.studentEmail} · ${m.className} (${m.day})'),
-                subtitle: Text('${m.comment}\nArchivo: ${m.scheduleFileName}'),
-                isThreeLine: true,
-                trailing: Text(
-                  m.mood.toStringAsFixed(0),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF0A7E8C),
+            (m) => TweenAnimationBuilder<double>(
+              key: ValueKey('mood-${m.classId}-${m.studentId}-${m.createdAt.toIso8601String()}'),
+              duration: const Duration(milliseconds: 220),
+              tween: Tween(begin: 0.95, end: 1),
+              builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+              child: Card(
+                color: m.scheduleFileName.isNotEmpty
+                    ? Colors.white
+                    : const Color(0xFFFFF4E5),
+                child: ListTile(
+                  leading: Text(_emojiForMood(m.mood), style: const TextStyle(fontSize: 26)),
+                  title: Text('${m.studentEmail} · ${m.className} (${m.day})'),
+                  subtitle: Text('${m.comment}\nArchivo: ${m.scheduleFileName}'),
+                  isThreeLine: true,
+                  trailing: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        m.mood.toStringAsFixed(0),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF0A7E8C),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      if (!m.teacherRead)
+                        TextButton(
+                          onPressed: () => onMarkMoodRead(m.studentId),
+                          child: const Text('Marcar leído'),
+                        )
+                      else
+                        const Icon(Icons.check_circle, color: Color(0xFF0B8A3A), size: 18),
+                    ],
                   ),
                 ),
               ),

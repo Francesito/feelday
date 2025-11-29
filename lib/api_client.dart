@@ -94,6 +94,14 @@ class ApiClient {
     return [];
   }
 
+  Future<Map<String, dynamic>> markMoodAsRead(int id) async {
+    final res = await http.patch(
+      Uri.parse('$baseUrl/mood/$id/read'),
+      headers: _headers(),
+    );
+    return _decode(res);
+  }
+
   Future<Map<String, dynamic>> submitMood(Map<String, dynamic> payload) async {
     final res = await http.post(
       Uri.parse('$baseUrl/mood'),
