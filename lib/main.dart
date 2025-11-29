@@ -242,6 +242,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
                 onUpdateJustificante: _updateJustificanteStatus,
                 onReviewEnrollment: _reviewEnrollment,
                 onMarkMoodRead: _markMoodRead,
+                onRefresh: _refreshData,
               );
 
     return MaterialApp(
@@ -388,9 +389,9 @@ class _FeeldayAppState extends State<FeeldayApp> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Tu solicitud a la clase está pendiente de aprobación.')),
       );
-      return;
+      return false;
     }
-    if (_currentUser == null) return;
+    if (_currentUser == null) return false;
     final messenger = ScaffoldMessenger.of(context);
     try {
       final res = await _api.submitMood({
@@ -1871,6 +1872,7 @@ class TeacherShell extends StatefulWidget {
     required this.onUpdateJustificante,
     required this.onReviewEnrollment,
     required this.onMarkMoodRead,
+    required this.onRefresh,
   });
 
   final UserAccount user;
@@ -1884,6 +1886,7 @@ class TeacherShell extends StatefulWidget {
   final void Function(int enrollmentId, String status, BuildContext context)
       onReviewEnrollment;
   final void Function(int moodId) onMarkMoodRead;
+  final Future<void> Function() onRefresh;
 
   @override
   State<TeacherShell> createState() => _TeacherShellState();
@@ -1909,6 +1912,7 @@ class _TeacherShellState extends State<TeacherShell> {
         onUpdateJustificante: widget.onUpdateJustificante,
         onReviewEnrollment: widget.onReviewEnrollment,
         onMarkMoodRead: widget.onMarkMoodRead,
+        onRefresh: widget.onRefresh,
       ),
     ];
 
@@ -1926,6 +1930,11 @@ class _TeacherShellState extends State<TeacherShell> {
           ),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            onPressed: widget.onRefresh,
+            icon: const Icon(Icons.refresh),
+          ),
           IconButton(
             onPressed: widget.onLogout,
             icon: const Icon(Icons.logout),
@@ -2053,6 +2062,7 @@ class TeacherPanel extends StatelessWidget {
     required this.onUpdateJustificante,
     required this.onReviewEnrollment,
     required this.onMarkMoodRead,
+    required this.onRefresh,
   });
 
   final List<ClassRoom> classes;
@@ -2063,6 +2073,7 @@ class TeacherPanel extends StatelessWidget {
   final void Function(int enrollmentId, String status, BuildContext context)
       onReviewEnrollment;
   final void Function(int moodId) onMarkMoodRead;
+  final Future<void> Function() onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -2072,14 +2083,137 @@ class TeacherPanel extends StatelessWidget {
         .expand((c) => c.pendingEnrollments.map((e) => {'req': e, 'className': c.name}))
         .toList();
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (pending.isNotEmpty) ...[
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (pending.isNotEmpty) ...[
+              const Text(
+                'Solicitudes de ingreso',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF073F50),
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...pending.map((p) {
+                final EnrollmentRequest req = p['req'] as EnrollmentRequest;
+                final className = p['className'] as String;
+                return Card(
+                  child: ListTile(
+                    title: Text('${req.studentName} (${req.studentEmail})'),
+                    subtitle: Text('Clase: $className · Estado: ${req.status}'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: 'Aprobar',
+                          onPressed: () => onReviewEnrollment(req.id, 'approved', context),
+                          icon: const Icon(Icons.check_circle_outline, color: Color(0xFF0B8A3A)),
+                        ),
+                        IconButton(
+                          tooltip: 'Rechazar',
+                          onPressed: () => onReviewEnrollment(req.id, 'rejected', context),
+                          icon: const Icon(Icons.cancel_outlined, color: Color(0xFFC1121F)),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+              const SizedBox(height: 16),
+            ],
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: const [
+                Text(
+                  'Panel de emociones',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF073F50),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (allMoodEntries.isEmpty)
+              const Card(
+                child: ListTile(
+                  leading: Icon(Icons.sentiment_satisfied_alt, color: Color(0xFF0A7E8C)),
+                  title: Text('Aún no hay emociones enviadas'),
+                  subtitle: Text('Pide a tus alumnos que registren su estado de ánimo.'),
+                ),
+              )
+            else
+              ...allMoodEntries.map(
+                (m) => TweenAnimationBuilder<double>(
+                  key: ValueKey('mood-${m.classId}-${m.studentId}-${m.createdAt.toIso8601String()}'),
+                  duration: const Duration(milliseconds: 220),
+                  tween: Tween(begin: 0.95, end: 1),
+                  builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+                  child: Card(
+                    color: m.scheduleFileName.isNotEmpty
+                        ? Colors.white
+                        : const Color(0xFFFFF4E5),
+                    child: ListTile(
+                      leading: Text(_emojiForMood(m.mood), style: const TextStyle(fontSize: 26)),
+                      title: Text('${m.studentName.isNotEmpty ? m.studentName : m.studentEmail} · ${m.className} (${m.day})'),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(m.comment),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.picture_as_pdf, size: 18, color: Color(0xFFB00020)),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  m.scheduleFileName.isNotEmpty
+                                      ? m.scheduleFileName
+                                      : 'Sin horario adjunto',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      isThreeLine: false,
+                      trailing: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            m.mood.toStringAsFixed(0),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF0A7E8C),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          if (!m.teacherRead)
+                            TextButton(
+                              onPressed: () => onMarkMoodRead(m.id),
+                              child: const Text('Marcar leído'),
+                            )
+                          else
+                            const Icon(Icons.check_circle, color: Color(0xFF0B8A3A), size: 18),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 12),
             const Text(
-              'Solicitudes de ingreso',
+              'Justificantes',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
@@ -2087,150 +2221,45 @@ class TeacherPanel extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            ...pending.map((p) {
-              final EnrollmentRequest req = p['req'] as EnrollmentRequest;
-              final className = p['className'] as String;
-              return Card(
-                child: ListTile(
-                  title: Text('${req.studentName} (${req.studentEmail})'),
-                  subtitle: Text('Clase: $className · Estado: ${req.status}'),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'Aprobar',
-                        onPressed: () => onReviewEnrollment(req.id, 'approved', context),
-                        icon: const Icon(Icons.check_circle_outline, color: Color(0xFF0B8A3A)),
-                      ),
-                      IconButton(
-                        tooltip: 'Rechazar',
-                        onPressed: () => onReviewEnrollment(req.id, 'rejected', context),
-                        icon: const Icon(Icons.cancel_outlined, color: Color(0xFFC1121F)),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-            const SizedBox(height: 16),
-          ],
-          const Text(
-            'Panel de emociones',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF073F50),
-            ),
-          ),
-          const SizedBox(height: 8),
-          ...allMoodEntries.map(
-            (m) => TweenAnimationBuilder<double>(
-              key: ValueKey('mood-${m.classId}-${m.studentId}-${m.createdAt.toIso8601String()}'),
-              duration: const Duration(milliseconds: 220),
-              tween: Tween(begin: 0.95, end: 1),
-              builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
-              child: Card(
-                color: m.scheduleFileName.isNotEmpty
-                    ? Colors.white
-                    : const Color(0xFFFFF4E5),
-                child: ListTile(
-                  leading: Text(_emojiForMood(m.mood), style: const TextStyle(fontSize: 26)),
-                  title: Text('${m.studentName.isNotEmpty ? m.studentName : m.studentEmail} · ${m.className} (${m.day})'),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(m.comment),
-                      const SizedBox(height: 6),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.picture_as_pdf, size: 18, color: Color(0xFFB00020)),
-                          const SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              m.scheduleFileName.isNotEmpty
-                                  ? m.scheduleFileName
-                                  : 'Sin horario adjunto',
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  isThreeLine: false,
-                  trailing: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        m.mood.toStringAsFixed(0),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF0A7E8C),
+            ...allJustificantes.map(
+              (j) => TweenAnimationBuilder<double>(
+                key: ValueKey('teach-just-${j.id}'),
+                duration: const Duration(milliseconds: 230),
+                tween: Tween(begin: 0.95, end: 1),
+                builder: (context, scale, child) =>
+                    Transform.scale(scale: scale, child: child),
+                child: Card(
+                  child: ListTile(
+                    leading: _buildThumb(j.imageUrl, j.imageLabel),
+                    title: Text(
+                      '${j.studentName.isNotEmpty ? j.studentName : j.studentEmail} · ${j.className}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text('${j.imageLabel}\n${j.reason}'),
+                    isThreeLine: true,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: 'Aprobar',
+                          onPressed: () =>
+                              onUpdateJustificante(j, JustificanteStatus.approved),
+                          icon: const Icon(Icons.check_circle_outline, color: Color(0xFF0B8A3A)),
                         ),
-                      ),
-                      const SizedBox(height: 6),
-                      if (!m.teacherRead)
-                        TextButton(
-                          onPressed: () => onMarkMoodRead(m.id),
-                          child: const Text('Marcar leído'),
-                        )
-                      else
-                        const Icon(Icons.check_circle, color: Color(0xFF0B8A3A), size: 18),
-                    ],
+                        IconButton(
+                          tooltip: 'Rechazar',
+                          onPressed: () =>
+                              onUpdateJustificante(j, JustificanteStatus.rejected),
+                          icon: const Icon(Icons.cancel_outlined, color: Color(0xFFC1121F)),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'Justificantes',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF073F50),
-            ),
-          ),
-          const SizedBox(height: 8),
-          ...allJustificantes.map(
-            (j) => TweenAnimationBuilder<double>(
-              key: ValueKey('teach-just-${j.id}'),
-              duration: const Duration(milliseconds: 230),
-              tween: Tween(begin: 0.95, end: 1),
-              builder: (context, scale, child) =>
-                  Transform.scale(scale: scale, child: child),
-              child: Card(
-                child: ListTile(
-                  leading: _buildThumb(j.imageUrl, j.imageLabel),
-                  title: Text(
-                    '${j.studentName.isNotEmpty ? j.studentName : j.studentEmail} · ${j.className}',
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text('${j.imageLabel}\n${j.reason}'),
-                  isThreeLine: true,
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'Aprobar',
-                        onPressed: () =>
-                            onUpdateJustificante(j, JustificanteStatus.approved),
-                        icon: const Icon(Icons.check_circle_outline, color: Color(0xFF0B8A3A)),
-                      ),
-                      IconButton(
-                        tooltip: 'Rechazar',
-                        onPressed: () =>
-                            onUpdateJustificante(j, JustificanteStatus.rejected),
-                        icon: const Icon(Icons.cancel_outlined, color: Color(0xFFC1121F)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
