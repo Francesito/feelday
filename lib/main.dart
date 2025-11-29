@@ -377,7 +377,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
     }
   }
 
-  Future<void> _submitMood({
+  Future<bool> _submitMood({
     required ClassRoom cls,
     required double mood,
     required String comment,
@@ -416,8 +416,11 @@ class _FeeldayAppState extends State<FeeldayApp> {
       setState(() {
         _allMoodEntries.insert(0, entry);
       });
+      await _refreshData();
+      return true;
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+      return false;
     }
   }
 
@@ -992,7 +995,7 @@ class StudentShell extends StatefulWidget {
   final void Function(String code, BuildContext context) onJoinClass;
   final VoidCallback onLogout;
   final void Function(ClassRoom cls, String fileName, String fileUrl) onUploadSchedule;
-  final void Function({
+  final Future<bool> Function({
     required ClassRoom cls,
     required double mood,
     required String comment,
@@ -1094,7 +1097,7 @@ class StudentClassesPage extends StatefulWidget {
   final List<MoodEntry> moodEntries;
   final void Function(String code, BuildContext context) onJoinClass;
   final void Function(ClassRoom cls, String fileName, String fileUrl) onUploadSchedule;
-  final void Function({
+  final Future<bool> Function({
     required ClassRoom cls,
     required double mood,
     required String comment,
@@ -1382,20 +1385,22 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
               child: ElevatedButton(
                 onPressed: !approved
                     ? null
-                    : () {
-                        widget.onSubmitMood(
+                    : () async {
+                        final ok = await widget.onSubmitMood(
                           cls: cls,
                           mood: _mood,
                           comment: commentCtrl.text,
                           day: _selectedDay,
                           scheduleFileName: _selectedFile ?? '',
                         );
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Enviado al maestro'),
-                          ),
-                        );
-                        commentCtrl.clear();
+                        if (ok) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Enviado al maestro'),
+                            ),
+                          );
+                          commentCtrl.clear();
+                        }
                       },
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
