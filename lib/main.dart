@@ -1769,26 +1769,34 @@ class _JustificanteFormState extends State<JustificanteForm> {
               ),
             ),
             const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: () async {
-              final res = await FilePicker.platform.pickFiles(
-                type: FileType.custom,
-                allowedExtensions: ['png', 'jpg', 'jpeg', 'webp'],
-                withData: true,
-              );
-              if (res == null) return;
-              final f = res.files.single;
-              if (f.bytes == null) return;
-              final ext = (f.extension ?? 'png').toLowerCase();
-              final dataUrl = 'data:image/$ext;base64,${base64Encode(f.bytes!)}';
-              widget.onPickFile(f.name, dataUrl);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Imagen seleccionada: ${f.name}')),
-              );
-            },
-            icon: const Icon(Icons.image_outlined),
-            label: Text(fileName),
-          ),
+            FilledButton.icon(
+              onPressed: () async {
+                final res = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['png', 'jpg', 'jpeg', 'webp'],
+                  withData: true,
+                );
+                if (res == null) return;
+                final f = res.files.single;
+                if (f.bytes == null) return;
+                // Evita imágenes muy grandes que superen el límite del backend (5 MB JSON / 2 MB data URL).
+                const int maxBytes = 2 * 1024 * 1024; // 2 MB
+                if (f.bytes!.length > maxBytes) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Imagen muy pesada (${(f.bytes!.length / (1024 * 1024)).toStringAsFixed(1)} MB). Usa otra menor a 2 MB.')),
+                  );
+                  return;
+                }
+                final ext = (f.extension ?? 'png').toLowerCase();
+                final dataUrl = 'data:image/$ext;base64,${base64Encode(f.bytes!)}';
+                widget.onPickFile(f.name, dataUrl);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Imagen seleccionada: ${f.name}')),
+                );
+              },
+              icon: const Icon(Icons.image_outlined),
+              label: Text(fileName),
+            ),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
