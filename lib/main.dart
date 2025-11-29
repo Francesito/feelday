@@ -165,7 +165,10 @@ class FeeldayApp extends StatefulWidget {
 
 class _FeeldayAppState extends State<FeeldayApp> {
   final GlobalKey<ScaffoldMessengerState> _messengerKey = GlobalKey<ScaffoldMessengerState>();
-  final ApiClient _api = ApiClient(baseUrl: 'https://feelday.onrender.com');
+  // Permite sobreescribir el backend con --dart-define=API_BASE_URL=https://...
+  static const String _apiBase =
+      String.fromEnvironment('API_BASE_URL', defaultValue: 'https://feelday.onrender.com');
+  final ApiClient _api = ApiClient(baseUrl: _apiBase);
   final List<ClassRoom> _classes = [];
   final List<MoodEntry> _allMoodEntries = [];
   final List<Justificante> _allJustificantes = [];
