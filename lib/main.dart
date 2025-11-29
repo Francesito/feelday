@@ -391,15 +391,20 @@ class _FeeldayAppState extends State<FeeldayApp> {
       );
       return false;
     }
-    if (_currentUser == null) return false;
+    if (_currentUser == null) {
+      _messengerKey.currentState
+          ?.showSnackBar(const SnackBar(content: Text('Debes iniciar sesión para enviar.')));
+      return false;
+    }
     final messenger = ScaffoldMessenger.of(context);
+    final scheduleName = scheduleFileName.isNotEmpty ? scheduleFileName : 'horario.pdf';
     try {
       final res = await _api.submitMood({
         'classId': cls.id,
         'moodValue': mood.toInt(),
         'comment': comment,
         'dayLabel': day,
-        'scheduleFileName': scheduleFileName,
+        'scheduleFileName': scheduleName,
       });
       final entry = MoodEntry(
         id: res['id'] as int? ?? Random().nextInt(999999),
@@ -411,7 +416,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
         day: day,
         mood: mood,
         comment: comment,
-        scheduleFileName: scheduleFileName,
+        scheduleFileName: scheduleName,
         createdAt: DateTime.parse(res['createdAt'] as String? ?? DateTime.now().toIso8601String()),
       );
       setState(() {
@@ -1401,6 +1406,12 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
                             ),
                           );
                           commentCtrl.clear();
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('No se pudo enviar el estado de ánimo'),
+                            ),
+                          );
                         }
                       },
                 style: ElevatedButton.styleFrom(
