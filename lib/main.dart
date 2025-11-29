@@ -356,7 +356,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
 
   Future<void> _uploadSchedule(ClassRoom cls, String fileName, String fileUrl) async {
     if (_currentUser == null) return;
-    final messenger = ScaffoldMessenger.of(context);
+    final messenger = _messengerKey.currentState;
     try {
       final res = await _api.submitSchedule({
         'classId': cls.id,
@@ -374,7 +374,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
         _mySchedules[cls.id] = upload;
       });
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+      messenger?.showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
@@ -386,7 +386,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
     required String scheduleFileName,
   }) async {
     if (cls.enrollmentStatus != 'approved') {
-      ScaffoldMessenger.of(context).showSnackBar(
+      _messengerKey.currentState?.showSnackBar(
         const SnackBar(content: Text('Tu solicitud a la clase está pendiente de aprobación.')),
       );
       return false;
@@ -396,7 +396,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
           ?.showSnackBar(const SnackBar(content: Text('Debes iniciar sesión para enviar.')));
       return false;
     }
-    final messenger = ScaffoldMessenger.of(context);
+    final messenger = _messengerKey.currentState;
     final scheduleName = scheduleFileName.isNotEmpty ? scheduleFileName : 'horario.pdf';
     try {
       final res = await _api.submitMood({
@@ -425,7 +425,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
       await _refreshData();
       return true;
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+      messenger?.showSnackBar(SnackBar(content: Text(e.toString())));
       return false;
     }
   }
