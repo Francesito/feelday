@@ -1813,7 +1813,7 @@ class _JustificanteFormState extends State<JustificanteForm> {
 
   @override
   Widget build(BuildContext context) {
-    final fileName = widget.selectedFileName ?? 'Seleccionar PDF';
+    final fileName = widget.selectedFileName ?? 'Seleccionar imagen';
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
@@ -1842,17 +1842,21 @@ class _JustificanteFormState extends State<JustificanteForm> {
               onPressed: () async {
                 final res = await FilePicker.platform.pickFiles(
                   type: FileType.custom,
-                  allowedExtensions: ['png', 'jpg', 'jpeg', 'webp'],
+                  allowedExtensions: ['png', 'jpg'],
                   withData: true,
                 );
                 if (res == null) return;
                 final f = res.files.single;
                 if (f.bytes == null) return;
-                // Evita imágenes muy grandes que superen el límite del backend (5 MB JSON / 2 MB data URL).
-                const int maxBytes = 2 * 1024 * 1024; // 2 MB
+                // Rechaza imágenes mayores a 500 KB.
+                const int maxBytes = 500 * 1024;
                 if (f.bytes!.length > maxBytes) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Imagen muy pesada (${(f.bytes!.length / (1024 * 1024)).toStringAsFixed(1)} MB). Usa otra menor a 2 MB.')),
+                    SnackBar(
+                      content: Text(
+                        'Imagen muy pesada (${(f.bytes!.length / (1024 * 1024)).toStringAsFixed(1)} MB). Usa otra menor a 2 MB.',
+                      ),
+                    ),
                   );
                   return;
                 }
@@ -1872,20 +1876,20 @@ class _JustificanteFormState extends State<JustificanteForm> {
               child: FilledButton(
                 onPressed: widget.selectedFileName == null
                     ? null
-                    : () {
-                        widget.onSubmit(
-                          cls: widget.cls,
-                          reason: reasonCtrl.text.trim(),
-                          imageLabel: widget.selectedFileName ?? 'archivo.pdf',
-                          imageUrlOverride:
-                              widget.selectedFileUrl?.isNotEmpty == true
-                                  ? widget.selectedFileUrl!
-                                  : (widget.selectedFileName ?? 'archivo'),
-                        );
-                        reasonCtrl.clear();
-                        widget.onPickFile(null, null);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Justificante enviado')),
+                      : () {
+                          widget.onSubmit(
+                            cls: widget.cls,
+                            reason: reasonCtrl.text.trim(),
+                            imageLabel: widget.selectedFileName ?? 'imagen.png',
+                            imageUrlOverride:
+                                widget.selectedFileUrl?.isNotEmpty == true
+                                    ? widget.selectedFileUrl!
+                                    : (widget.selectedFileName ?? 'imagen'),
+                          );
+                          reasonCtrl.clear();
+                          widget.onPickFile(null, null);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Justificante enviado')),
                         );
                       },
                 style: FilledButton.styleFrom(
