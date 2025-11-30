@@ -2,10 +2,18 @@ import 'dart:math';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'api_client.dart';
 import 'package:file_picker/file_picker.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Ignorar eventos de teclado inválidos (bug del embedder en algunas distros Linux).
+  final binding = WidgetsBinding.instance;
+  binding.platformDispatcher.onKeyData = (KeyData data) {
+    if (data.physical == 0 || data.logical == 0) return true; // absorber corruptos
+    return false; // dejar pasar los válidos al manejador por defecto
+  };
   runApp(const FeeldayApp());
 }
 
@@ -690,7 +698,9 @@ class _AuthShellState extends State<AuthShell> {
 
   @override
   Widget build(BuildContext context) {
+    final viewInsets = MediaQuery.of(context).viewInsets.bottom;
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -700,49 +710,57 @@ class _AuthShellState extends State<AuthShell> {
           ),
         ),
         child: SafeArea(
-          child: Column(
-            children: [
-              const SizedBox(height: 18),
-              Text(
-                'feelday 🐺',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.4,
-                    ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Bienvenido, gestiona tus clases y estados de ánimo ✨',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white70,
-                    ),
-              ),
-              const SizedBox(height: 20),
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFF3F7F9),
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-                  ),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    child: _index == 0
-                        ? LoginCard(
-                            key: const ValueKey('login'),
-                            onLogin: widget.onLogin,
-                            onChangePage: () => setState(() => _index = 1),
-                          )
-                        : RegisterCard(
-                            key: const ValueKey('register'),
-                            onRegister: widget.onRegister,
-                            onBack: () => setState(() => _index = 0),
-                          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                padding: EdgeInsets.only(bottom: viewInsets + 16),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 18),
+                      Text(
+                        'feelday 🐺',
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.4,
+                            ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Bienvenido, gestiona tus clases y estados de ánimo ✨',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Colors.white70,
+                            ),
+                      ),
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF3F7F9),
+                          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                        ),
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          child: _index == 0
+                              ? LoginCard(
+                                  key: const ValueKey('login'),
+                                  onLogin: widget.onLogin,
+                                  onChangePage: () => setState(() => _index = 1),
+                                )
+                              : RegisterCard(
+                                  key: const ValueKey('register'),
+                                  onRegister: widget.onRegister,
+                                  onBack: () => setState(() => _index = 0),
+                                ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            ],
+              );
+            },
           ),
         ),
       ),
@@ -1026,15 +1044,18 @@ class _StudentShellState extends State<StudentShell> {
   @override
   Widget build(BuildContext context) {
     final tabs = [
-      StudentClassesPage(
-        user: widget.user,
-        classes: widget.classes,
-        schedules: widget.schedules,
-        moodEntries: widget.moodEntries,
-        onJoinClass: widget.onJoinClass,
-        onUploadSchedule: widget.onUploadSchedule,
-        onSubmitMood: widget.onSubmitMood,
-        onRefresh: widget.onRefresh,
+      Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewPadding.bottom + 12),
+        child: StudentClassesPage(
+          user: widget.user,
+          classes: widget.classes,
+          schedules: widget.schedules,
+          moodEntries: widget.moodEntries,
+          onJoinClass: widget.onJoinClass,
+          onUploadSchedule: widget.onUploadSchedule,
+          onSubmitMood: widget.onSubmitMood,
+          onRefresh: widget.onRefresh,
+        ),
       ),
       JustificantesPage(
         user: widget.user,
@@ -1130,7 +1151,12 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
     final available = widget.classes;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        16,
+        16,
+        16 + MediaQuery.of(context).viewPadding.bottom,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1612,8 +1638,13 @@ class _JustificantesPageState extends State<JustificantesPage> {
     final selectedClass =
         selectedClassId == null ? null : joined.firstWhere((c) => c.id == selectedClassId);
     final myJusts = widget.justificantes.where((j) => j.studentId == widget.user.id).toList();
-    return Padding(
-      padding: const EdgeInsets.all(16),
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+        16,
+        16,
+        16,
+        16 + MediaQuery.of(context).viewPadding.bottom,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

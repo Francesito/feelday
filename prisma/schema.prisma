@@ -24,6 +24,19 @@ enum EnrollmentStatus {
   rejected
 }
 
+enum AlertSeverity {
+  low
+  medium
+  high
+}
+
+enum AlertType {
+  low_mood
+  absences
+  low_average
+  custom
+}
+
 model User {
   id          Int       @id @default(autoincrement())
   email       String    @unique @db.VarChar(190)
@@ -37,6 +50,10 @@ model User {
   schedules   Schedule[]
   moodEntries MoodEntry[]
   justificantes Justificante[]
+  weeklyPerceptions WeeklyPerception[]
+  messagesSent Message[] @relation("TutorMessages")
+  messagesReceived Message[] @relation("StudentMessages")
+  alerts      Alert[]    @relation("StudentAlerts")
   resets      PasswordReset[]
 }
 
@@ -51,6 +68,9 @@ model Class {
   schedules   Schedule[]
   moodEntries MoodEntry[]
   justificantes Justificante[]
+  weeklyPerceptions WeeklyPerception[]
+  alerts      Alert[]    @relation("ClassAlerts")
+  messages    Message[]
 }
 
 model ClassEnrollment {
@@ -61,8 +81,10 @@ model ClassEnrollment {
   studentId  Int
   createdAt  DateTime @default(now())
   status     EnrollmentStatus @default(pending)
+  term       String  @db.VarChar(20) @default("2024Q1")
 
   @@unique([classId, studentId])
+  @@unique([studentId, term])
 }
 
 model Schedule {
@@ -84,12 +106,15 @@ model MoodEntry {
   classId           Int
   student           User     @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   studentId         Int
+  moodDate          DateTime @default(now())
   dayLabel          String   @db.VarChar(40)
   moodValue         Int
   comment           String?
   scheduleFileName  String?  @db.VarChar(255)
   teacherRead       Boolean  @default(false)
   createdAt         DateTime @default(now())
+
+  @@unique([studentId, moodDate])
 }
 
 model Justificante {
@@ -98,12 +123,60 @@ model Justificante {
   classId    Int
   student    User     @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   studentId  Int
+  type       String   @db.VarChar(50) @default("otro")
   imageName  String   @db.VarChar(255)
   imageUrl   String   @db.Text
   reason     String
   status     JustificanteStatus @default(pending)
+  term       String   @db.VarChar(20) @default("2024Q1")
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+model Subject {
+  id    Int    @id @default(autoincrement())
+  name  String @unique @db.VarChar(190)
+  perceptions WeeklyPerception[]
+}
+
+model WeeklyPerception {
+  id        Int      @id @default(autoincrement())
+  student   User     @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  studentId Int
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  classId   Int
+  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  subjectId Int
+  week      Int
+  level     String   @db.VarChar(50)
+  note      String?
+  createdAt DateTime @default(now())
+}
+
+model Message {
+  id           Int      @id @default(autoincrement())
+  class        Class?   @relation(fields: [classId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  classId      Int?
+  toStudent    User?    @relation("StudentMessages", fields: [toStudentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  toStudentId  Int?
+  fromTutor    User     @relation("TutorMessages", fields: [fromTutorId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  fromTutorId  Int
+  title        String   @db.VarChar(190)
+  body         String
+  createdAt    DateTime @default(now())
+}
+
+model Alert {
+  id          Int      @id @default(autoincrement())
+  student     User     @relation("StudentAlerts", fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  studentId   Int
+  class       Class?   @relation("ClassAlerts", fields: [classId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  classId     Int?
+  type        AlertType
+  description String
+  severity    AlertSeverity @default(low)
+  resolved    Boolean  @default(false)
+  createdAt   DateTime @default(now())
 }
 
 model PasswordReset {

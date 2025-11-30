@@ -58,10 +58,20 @@ router.post('/join', requireAuth, requireRole('student'), async (req: Authentica
     if (!code) return res.status(400).json({ error: 'Código requerido' });
     const cls = await prisma.class.findUnique({ where: { code } });
     if (!cls) return res.status(404).json({ error: 'Clase no encontrada' });
+    const term = currentTerm();
+    // Enforce un grupo por cuatrimestre
+    const alreadyInTerm = await prisma.classEnrollment.findFirst({
+      where: { studentId: req.user.userId, term, status: { in: ['pending', 'approved'] } },
+    });
+    if (alreadyInTerm && alreadyInTerm.classId !== cls.id) {
+      return res
+        .status(400)
+        .json({ error: 'Solo puedes pertenecer a un grupo por cuatrimestre. Da de baja el anterior.' });
+    }
     const enrollment = await prisma.classEnrollment.upsert({
       where: { classId_studentId: { classId: cls.id, studentId: req.user.userId } },
-      update: { status: 'pending' },
-      create: { classId: cls.id, studentId: req.user.userId, status: 'pending' },
+      update: { status: 'pending', term },
+      create: { classId: cls.id, studentId: req.user.userId, status: 'pending', term },
     });
     return res.json({ class: cls, enrollment, message: 'Solicitud enviada, pendiente de aprobación' });
   } catch (err) {
@@ -127,6 +137,12 @@ function generateCode() {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return result;
+}
+
+function currentTerm() {
+  const now = new Date();
+  const quarter = Math.floor(now.getMonth() / 3) + 1;
+  return `${now.getFullYear()}Q${quarter}`;
 }
 
 export default router;

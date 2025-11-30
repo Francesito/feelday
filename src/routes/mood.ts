@@ -40,6 +40,10 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     if (!classId || moodValue === undefined || !dayLabel) {
       return res.status(400).json({ error: 'Faltan campos' });
     }
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart);
+    todayEnd.setDate(todayEnd.getDate() + 1);
     // Ensure student is enrolled
     const enrollment = await prisma.classEnrollment.findFirst({
       where: { classId: Number(classId), studentId: req.user.userId },
@@ -49,16 +53,40 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
         .status(403)
         .json({ error: 'No estás inscrito en esta clase o falta aprobación del profesor' });
     }
+    // Enforce 1 check-in diario
+    const existingToday = await prisma.moodEntry.findFirst({
+      where: {
+        classId: Number(classId),
+        studentId: req.user.userId,
+        moodDate: { gte: todayStart, lt: todayEnd },
+      },
+    });
+    if (existingToday) {
+      return res.status(400).json({ error: 'Ya registraste tu estado de ánimo hoy en esta clase.' });
+    }
     const created = await prisma.moodEntry.create({
       data: {
         classId: Number(classId),
         studentId: req.user.userId,
+        moodDate: new Date(),
         moodValue: Number(moodValue),
         comment,
         dayLabel,
         scheduleFileName,
       },
     });
+    // Generar alerta por ánimo bajo
+    if (Number(moodValue) <= 40) {
+      await prisma.alert.create({
+        data: {
+          studentId: req.user.userId,
+          classId: Number(classId),
+          type: 'low_mood',
+          description: `Ánimo bajo (${moodValue}) reportado`,
+          severity: Number(moodValue) <= 20 ? 'high' : 'medium',
+        },
+      });
+    }
     return res.status(201).json(created);
   } catch (err) {
     console.error(err);

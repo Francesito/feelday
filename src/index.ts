@@ -7,6 +7,10 @@ import classRoutes from './routes/classes';
 import moodRoutes from './routes/mood';
 import scheduleRoutes from './routes/schedules';
 import justificantesRoutes from './routes/justificantes';
+import perceptionRoutes from './routes/perceptions';
+import messageRoutes from './routes/messages';
+import alertRoutes from './routes/alerts';
+import dashboardRoutes from './routes/dashboard';
 
 dotenv.config();
 
@@ -22,6 +26,10 @@ app.use('/classes', classRoutes);
 app.use('/mood', moodRoutes);
 app.use('/schedules', scheduleRoutes);
 app.use('/justificantes', justificantesRoutes);
+app.use('/perceptions', perceptionRoutes);
+app.use('/messages', messageRoutes);
+app.use('/alerts', alertRoutes);
+app.use('/dashboard', dashboardRoutes);
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {

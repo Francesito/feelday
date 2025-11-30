@@ -37,10 +37,12 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res) => {
 router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'No autorizado' });
-    const { classId, reason, imageUrl, imageName } = req.body;
+    const { classId, reason, imageUrl, imageName, type } = req.body;
     if (!classId || !reason || !imageUrl || !imageName) {
       return res.status(400).json({ error: 'Faltan campos' });
     }
+    const justificanteType = (type as string | undefined)?.toLowerCase() ?? 'otro';
+    const term = currentTerm();
     // Permitir data URLs de imágenes; rechazar tamaños excesivos
     if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
       if (imageUrl.length > 2_000_000) {
@@ -59,13 +61,22 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
         .status(403)
         .json({ error: 'No estás inscrito en esta clase o falta aprobación del profesor' });
     }
+    // Límite de 2 por cuatrimestre
+    const countInTerm = await prisma.justificante.count({
+      where: { studentId: req.user.userId, term },
+    });
+    if (countInTerm >= 2) {
+      return res.status(400).json({ error: 'Límite de 2 justificantes por cuatrimestre alcanzado.' });
+    }
     const justificante = await prisma.justificante.create({
       data: {
         classId: Number(classId),
         studentId: req.user.userId,
+        type: justificanteType,
         reason,
         imageUrl: imageUrl.toString(),
         imageName: imageName.toString(),
+        term,
       },
     });
     return res.status(201).json(justificante);
@@ -121,5 +132,11 @@ router.patch('/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
     return res.status(500).json({ error: 'Error interno', detail: err instanceof Error ? err.message : String(err) });
   }
 });
+
+function currentTerm() {
+  const now = new Date();
+  const quarter = Math.floor(now.getMonth() / 3) + 1;
+  return `${now.getFullYear()}Q${quarter}`;
+}
 
 export default router;
