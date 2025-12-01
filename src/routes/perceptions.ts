@@ -38,9 +38,9 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res) => {
 router.post('/', requireAuth, requireRole('student'), async (req: AuthenticatedRequest, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'No autorizado' });
-    const { classId, subjectId, week, level, note } = req.body;
-    if (!classId || !subjectId || week === undefined || !level) {
-      return res.status(400).json({ error: 'Faltan campos' });
+    const { classId, week, level, note } = req.body;
+    if (!classId || week === undefined || !level) {
+      return res.status(400).json({ error: 'Faltan campos (classId, semana, nivel)' });
     }
     const enrollment = await prisma.classEnrollment.findFirst({
       where: { classId: Number(classId), studentId: req.user.userId, status: 'approved' },
@@ -48,11 +48,18 @@ router.post('/', requireAuth, requireRole('student'), async (req: AuthenticatedR
     if (!enrollment) {
       return res.status(403).json({ error: 'No estás aprobado en esta clase' });
     }
+    const cls = await prisma.class.findUnique({ where: { id: Number(classId) } });
+    if (!cls) return res.status(404).json({ error: 'Clase no encontrada' });
+    // Usa la propia clase como materia; crea si no existe.
+    const subject = await prisma.subject.upsert({
+      where: { name: cls.name },
+      update: {},
+      create: { name: cls.name },
+    });
     const existing = await prisma.weeklyPerception.findFirst({
       where: {
         studentId: req.user.userId,
         classId: Number(classId),
-        subjectId: Number(subjectId),
         week: Number(week),
       },
     });
@@ -63,7 +70,7 @@ router.post('/', requireAuth, requireRole('student'), async (req: AuthenticatedR
       data: {
         studentId: req.user.userId,
         classId: Number(classId),
-        subjectId: Number(subjectId),
+        subjectId: subject.id,
         week: Number(week),
         level: level.toString(),
         note,
@@ -91,21 +98,7 @@ router.post('/', requireAuth, requireRole('student'), async (req: AuthenticatedR
 
 router.get('/subjects', requireAuth, async (_req, res) => {
   try {
-    let subjects = await prisma.subject.findMany();
-    if (subjects.length === 0) {
-      const seeded = await prisma.subject.createMany({
-        data: [
-          { name: 'Matemáticas' },
-          { name: 'Física' },
-          { name: 'Estadística' },
-          { name: 'Programación' },
-        ],
-        skipDuplicates: true,
-      });
-      if (seeded.count > 0) {
-        subjects = await prisma.subject.findMany();
-      }
-    }
+    const subjects = await prisma.subject.findMany();
     return res.json(subjects);
   } catch (err) {
     console.error('[perceptions] subjects error', err);

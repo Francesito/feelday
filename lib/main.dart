@@ -187,7 +187,6 @@ class _FeeldayAppState extends State<FeeldayApp> {
   final List<MoodEntry> _allMoodEntries = [];
   final List<Justificante> _allJustificantes = [];
   final List<Map<String, dynamic>> _perceptions = [];
-  final List<Map<String, dynamic>> _subjects = [];
   final List<Map<String, dynamic>> _messages = [];
   final List<Map<String, dynamic>> _alerts = [];
   Map<String, dynamic> _dashboardSummary = {};
@@ -709,11 +708,6 @@ class _FeeldayAppState extends State<FeeldayApp> {
       _perceptions
         ..clear()
         ..addAll(perceptions.cast<Map<String, dynamic>>());
-
-      final subjects = await _api.fetchSubjects();
-      _subjects
-        ..clear()
-        ..addAll(subjects.cast<Map<String, dynamic>>());
 
       final messages = await _api.fetchMessages();
       _messages
@@ -2229,22 +2223,33 @@ class MessageComposer extends StatefulWidget {
 class _MessageComposerState extends State<MessageComposer> {
   final titleCtrl = TextEditingController();
   final bodyCtrl = TextEditingController();
-  ClassRoom? selectedClass;
+  int? selectedClassId;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.classes.isNotEmpty) {
+      selectedClassId = widget.classes.first.id;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final available = widget.classes;
+    if (selectedClassId != null && available.every((c) => c.id != selectedClassId)) {
+      selectedClassId = available.isNotEmpty ? available.first.id : null;
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        DropdownButton<ClassRoom>(
-          value: selectedClass,
+        DropdownButton<int>(
+          value: selectedClassId,
           hint: const Text('Clase'),
           isExpanded: true,
           items: available
-              .map((c) => DropdownMenuItem(value: c, child: Text(c.name)))
+              .map((c) => DropdownMenuItem<int>(value: c.id, child: Text(c.name)))
               .toList(),
-          onChanged: (c) => setState(() => selectedClass = c),
+          onChanged: (id) => setState(() => selectedClassId = id),
         ),
         const SizedBox(height: 6),
         TextField(
@@ -2261,11 +2266,12 @@ class _MessageComposerState extends State<MessageComposer> {
         Align(
           alignment: Alignment.centerRight,
           child: FilledButton(
-            onPressed: selectedClass == null
+            onPressed: selectedClassId == null
                 ? null
                 : () async {
+                    final clsId = selectedClassId!;
                     await widget.onSend(
-                      classId: selectedClass!.id,
+                      classId: clsId,
                       title: titleCtrl.text.trim(),
                       body: bodyCtrl.text.trim(),
                     );
@@ -2874,6 +2880,7 @@ class TeacherPanel extends StatelessWidget {
                       ),
                       isThreeLine: false,
                       trailing: Column(
+                        mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
@@ -2883,9 +2890,10 @@ class TeacherPanel extends StatelessWidget {
                               color: Color(0xFF0A7E8C),
                             ),
                           ),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 4),
                           if (!m.teacherRead)
                             TextButton(
+                              style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero),
                               onPressed: () => onMarkMoodRead(m.id),
                               child: const Text('Marcar leído'),
                             )
