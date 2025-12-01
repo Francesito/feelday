@@ -1,10 +1,14 @@
-import 'dart:math';
 import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+
 import 'api_client.dart';
-import 'package:file_picker/file_picker.dart';
+import 'image_saver.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1905,19 +1909,66 @@ class _JustificantesPageState extends State<JustificantesPage> {
                     key: ValueKey('std-just-${j.id}'),
                     duration: const Duration(milliseconds: 220),
                     tween: Tween(begin: 0.95, end: 1),
-                    builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+                    builder: (context, scale, child) =>
+                        Transform.scale(scale: scale, child: child),
                     child: Card(
-                      child: ListTile(
-                        leading: _buildThumb(j.imageUrl, j.imageLabel),
-                        title: Text(j.imageLabel),
-                        subtitle: Text(j.reason),
-                        trailing: Chip(
-                          label: Text(_statusLabel(j.status)),
-                          backgroundColor: _statusColor(j.status).withValues(alpha: 0.15),
-                          labelStyle: TextStyle(
-                            color: _statusColor(j.status),
-                            fontWeight: FontWeight.w700,
-                          ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildThumb(j.imageUrl, j.imageLabel),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        j.imageLabel,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF073F50),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(j.reason),
+                                    ],
+                                  ),
+                                ),
+                                Chip(
+                                  label: Text(_statusLabel(j.status)),
+                                  backgroundColor: _statusColor(j.status).withValues(alpha: 0.15),
+                                  labelStyle: TextStyle(
+                                    color: _statusColor(j.status),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            justificantePreviewImage(j.imageUrl, j.imageLabel, height: 170),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                TextButton.icon(
+                                  onPressed: () =>
+                                      showJustificanteViewer(context, j.imageUrl, j.imageLabel),
+                                  icon: const Icon(Icons.visibility_outlined),
+                                  label: const Text('Ver'),
+                                ),
+                                const SizedBox(width: 8),
+                                TextButton.icon(
+                                  onPressed: () =>
+                                      downloadJustificanteImage(context, j.imageUrl, j.imageLabel),
+                                  icon: const Icon(Icons.download_outlined),
+                                  label: const Text('Descargar'),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -1975,6 +2026,201 @@ class _JustificantesPageState extends State<JustificantesPage> {
           : const Icon(Icons.image_outlined),
     );
   }
+}
+
+Widget justificantePreviewImage(
+  String url,
+  String label, {
+  double height = 180,
+}) {
+  final placeholder = Container(
+    height: height,
+    width: double.infinity,
+    decoration: BoxDecoration(
+      color: const Color(0xFFE5F3F6),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    alignment: Alignment.center,
+    child: const Icon(Icons.image_outlined, size: 40, color: Color(0xFF4F6F77)),
+  );
+
+  if (url.isEmpty) return placeholder;
+
+  if (url.startsWith('data:image/')) {
+    try {
+      final base64Data = url.split(',').last;
+      final bytes = base64Decode(base64Data);
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.memory(
+          bytes,
+          height: height,
+          width: double.infinity,
+          fit: BoxFit.cover,
+        ),
+      );
+    } catch (_) {
+      return placeholder;
+    }
+  }
+
+  return ClipRRect(
+    borderRadius: BorderRadius.circular(12),
+    child: Image.network(
+      url,
+      height: height,
+      width: double.infinity,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => placeholder,
+      loadingBuilder: (context, child, progress) {
+        if (progress == null) return child;
+        return Container(
+          height: height,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE5F3F6),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          alignment: Alignment.center,
+          child: CircularProgressIndicator(
+            value: progress.expectedTotalBytes != null
+                ? progress.cumulativeBytesLoaded / (progress.expectedTotalBytes ?? 1)
+                : null,
+          ),
+        );
+      },
+    ),
+  );
+}
+
+Future<void> downloadJustificanteImage(
+  BuildContext context,
+  String imageUrl,
+  String imageLabel,
+) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final bytes = await _readImageBytes(imageUrl);
+    if (bytes == null) throw Exception('Imagen no disponible');
+    final filename = _sanitizeFileName(imageLabel, imageUrl);
+    final saved = await saveImageBytes(filename, bytes);
+    if (!saved) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Descarga no disponible en esta plataforma. Usa la versión web para guardar la imagen.',
+          ),
+        ),
+      );
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(content: Text('Imagen descargada: $filename')),
+    );
+  } catch (e) {
+    messenger.showSnackBar(
+      SnackBar(content: Text('No se pudo descargar: ${e.toString()}')),
+    );
+  }
+}
+
+void showJustificanteViewer(
+  BuildContext context,
+  String imageUrl,
+  String imageLabel,
+) {
+  showDialog(
+    context: context,
+    builder: (context) {
+      return Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                imageLabel,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                  color: Color(0xFF073F50),
+                ),
+              ),
+              const SizedBox(height: 10),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 440, maxWidth: 520),
+                child: InteractiveViewer(
+                  child: justificantePreviewImage(imageUrl, imageLabel, height: 380),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    onPressed: () =>
+                        downloadJustificanteImage(context, imageUrl, imageLabel),
+                    icon: const Icon(Icons.download_outlined),
+                    label: const Text('Descargar'),
+                  ),
+                  const SizedBox(width: 4),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cerrar'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+Future<Uint8List?> _readImageBytes(String imageUrl) async {
+  if (imageUrl.isEmpty) return null;
+  if (imageUrl.startsWith('data:image/')) {
+    try {
+      final base64Data = imageUrl.split(',').last;
+      return base64Decode(base64Data);
+    } catch (_) {
+      return null;
+    }
+  }
+  final uri = Uri.tryParse(imageUrl);
+  if (uri == null) return null;
+  final res = await http.get(uri);
+  if (res.statusCode >= 200 && res.statusCode < 300) {
+    return res.bodyBytes;
+  }
+  throw Exception('Respuesta ${res.statusCode}');
+}
+
+String _sanitizeFileName(String label, String imageUrl) {
+  final base = (label.isNotEmpty ? label : 'justificante').trim();
+  final cleaned = base.replaceAll(RegExp(r'[\\\\/:*?"<>|]'), '_');
+  final extension = _inferImageExtension(cleaned, imageUrl);
+  if (cleaned.toLowerCase().endsWith(extension.toLowerCase())) return cleaned;
+  return '$cleaned$extension';
+}
+
+String _inferImageExtension(String fileName, String imageUrl) {
+  final lower = fileName.toLowerCase();
+  if (lower.endsWith('.png')) return '.png';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return '.jpg';
+
+  final lowerUrl = imageUrl.toLowerCase();
+  if (lowerUrl.contains('image/png') || lowerUrl.endsWith('.png')) return '.png';
+  if (lowerUrl.contains('image/jpg') ||
+      lowerUrl.contains('image/jpeg') ||
+      lowerUrl.endsWith('.jpg') ||
+      lowerUrl.endsWith('.jpeg')) {
+    return '.jpg';
+  }
+  return '.png';
 }
 
 class PerceptionsPage extends StatefulWidget {
@@ -2994,28 +3240,78 @@ class TeacherPanel extends StatelessWidget {
                 builder: (context, scale, child) =>
                     Transform.scale(scale: scale, child: child),
                 child: Card(
-                  child: ListTile(
-                    leading: _buildThumb(j.imageUrl, j.imageLabel),
-                    title: Text(
-                      '${j.studentName.isNotEmpty ? j.studentName : j.studentEmail} · ${j.className}',
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text('${j.imageLabel}\n${j.reason}'),
-                    isThreeLine: true,
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        IconButton(
-                          tooltip: 'Aprobar',
-                          onPressed: () =>
-                              onUpdateJustificante(j, JustificanteStatus.approved),
-                          icon: const Icon(Icons.check_circle_outline, color: Color(0xFF0B8A3A)),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildThumb(j.imageUrl, j.imageLabel),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${j.studentName.isNotEmpty ? j.studentName : j.studentEmail} · ${j.className}',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF073F50),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(j.reason),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    j.imageLabel,
+                                    style: const TextStyle(color: Color(0xFF4F6F77)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  tooltip: 'Aprobar',
+                                  onPressed: () =>
+                                      onUpdateJustificante(j, JustificanteStatus.approved),
+                                  icon:
+                                      const Icon(Icons.check_circle_outline, color: Color(0xFF0B8A3A)),
+                                ),
+                                IconButton(
+                                  tooltip: 'Rechazar',
+                                  onPressed: () =>
+                                      onUpdateJustificante(j, JustificanteStatus.rejected),
+                                  icon:
+                                      const Icon(Icons.cancel_outlined, color: Color(0xFFC1121F)),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
-                        IconButton(
-                          tooltip: 'Rechazar',
-                          onPressed: () =>
-                              onUpdateJustificante(j, JustificanteStatus.rejected),
-                          icon: const Icon(Icons.cancel_outlined, color: Color(0xFFC1121F)),
+                        const SizedBox(height: 10),
+                        justificantePreviewImage(j.imageUrl, j.imageLabel, height: 190),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            TextButton.icon(
+                              onPressed: () =>
+                                  showJustificanteViewer(context, j.imageUrl, j.imageLabel),
+                              icon: const Icon(Icons.visibility_outlined),
+                              label: const Text('Ver'),
+                            ),
+                            const SizedBox(width: 8),
+                            TextButton.icon(
+                              onPressed: () =>
+                                  downloadJustificanteImage(context, j.imageUrl, j.imageLabel),
+                              icon: const Icon(Icons.download_outlined),
+                              label: const Text('Descargar'),
+                            ),
+                          ],
                         ),
                       ],
                     ),
