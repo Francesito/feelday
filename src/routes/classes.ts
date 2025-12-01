@@ -59,15 +59,6 @@ router.post('/join', requireAuth, requireRole('student'), async (req: Authentica
     const cls = await prisma.class.findUnique({ where: { code } });
     if (!cls) return res.status(404).json({ error: 'Clase no encontrada' });
     const term = currentTerm();
-    // Enforce un grupo por cuatrimestre
-    const alreadyInTerm = await prisma.classEnrollment.findFirst({
-      where: { studentId: req.user.userId, term, status: { in: ['pending', 'approved'] } },
-    });
-    if (alreadyInTerm && alreadyInTerm.classId !== cls.id) {
-      return res
-        .status(400)
-        .json({ error: 'Solo puedes pertenecer a un grupo por cuatrimestre. Da de baja el anterior.' });
-    }
     const enrollment = await prisma.classEnrollment.upsert({
       where: { classId_studentId: { classId: cls.id, studentId: req.user.userId } },
       update: { status: 'pending', term },
@@ -82,10 +73,17 @@ router.post('/join', requireAuth, requireRole('student'), async (req: Authentica
 
 router.get('/:id/members', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
+    if (!req.user) return res.status(401).json({ error: 'No autorizado' });
     const id = Number(req.params.id);
+    const cls = await prisma.class.findUnique({ where: { id }, select: { teacherId: true } });
+    if (!cls) return res.status(404).json({ error: 'Clase no encontrada' });
+    if (req.user.role !== 'teacher' || cls.teacherId !== req.user.userId) {
+      return res.status(403).json({ error: 'Solo el profesor de la clase puede ver los alumnos' });
+    }
     const members = await prisma.classEnrollment.findMany({
       where: { classId: id },
       include: { student: { select: { id: true, email: true, fullName: true } } },
+      orderBy: [{ createdAt: 'asc' }, { student: { fullName: 'asc' } }],
     });
     return res.json(members);
   } catch (err) {

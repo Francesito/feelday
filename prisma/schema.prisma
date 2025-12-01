@@ -84,7 +84,6 @@ model ClassEnrollment {
   term       String  @db.VarChar(20) @default("2024Q1")
 
   @@unique([classId, studentId])
-  @@unique([studentId, term])
 }
 
 model Schedule {
