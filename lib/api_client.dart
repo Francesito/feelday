@@ -69,6 +69,11 @@ class ApiClient {
     return _decode(res);
   }
 
+  Future<Map<String, dynamic>> fetchClassDetail(int id) async {
+    final res = await http.get(Uri.parse('$baseUrl/classes/$id'), headers: _headers());
+    return _decode(res);
+  }
+
   Future<Map<String, dynamic>> joinClass(String code) async {
     final res = await http.post(
       Uri.parse('$baseUrl/classes/join'),

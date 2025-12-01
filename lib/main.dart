@@ -259,6 +259,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
                 messages: _messages,
                 dashboardSummary: _dashboardSummary,
                 onCreateClass: (name, ctx) => _createClass(name, ctx),
+                onViewClassMembers: _viewClassMembers,
                 onLogout: _logout,
                 onUpdateJustificante: _updateJustificanteStatus,
                 onReviewEnrollment: _reviewEnrollment,
@@ -357,6 +358,69 @@ class _FeeldayAppState extends State<FeeldayApp> {
       await _refreshData();
       messenger.showSnackBar(
         const SnackBar(content: Text('Clase creada')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  Future<void> _viewClassMembers(ClassRoom cls, BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final data = await _api.fetchClassDetail(cls.id);
+      final enrollments = (data['enrollments'] as List<dynamic>? ?? [])
+          .cast<Map<String, dynamic>>();
+
+      if (!mounted) return;
+      showModalBottomSheet(
+        context: context,
+        showDragHandle: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (_) {
+          if (enrollments.isEmpty) {
+            return const Padding(
+              padding: EdgeInsets.all(24.0),
+              child: Text('Aún no hay alumnos inscritos en esta clase.'),
+            );
+          }
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Alumnos de ${cls.name}',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: enrollments.length,
+                    itemBuilder: (_, idx) {
+                      final e = enrollments[idx];
+                      final student = e['student'] as Map<String, dynamic>? ?? {};
+                      final name = student['fullName']?.toString() ?? 'Sin nombre';
+                      final email = student['email']?.toString() ?? '';
+                      final status = e['status']?.toString() ?? 'pending';
+                      return ListTile(
+                        leading: const Icon(Icons.person_outline),
+                        title: Text(name),
+                        subtitle: Text(email.isNotEmpty ? email : 'Sin correo'),
+                        trailing: Chip(
+                          label: Text(status),
+                          backgroundColor: const Color(0xFFE3F2F4),
+                          side: BorderSide.none,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       );
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(e.toString())));
@@ -2423,6 +2487,7 @@ class TeacherShell extends StatefulWidget {
     required this.messages,
     required this.dashboardSummary,
     required this.onCreateClass,
+    required this.onViewClassMembers,
     required this.onLogout,
     required this.onUpdateJustificante,
     required this.onReviewEnrollment,
@@ -2441,6 +2506,7 @@ class TeacherShell extends StatefulWidget {
   final List<Map<String, dynamic>> messages;
   final Map<String, dynamic> dashboardSummary;
   final void Function(String name, BuildContext context) onCreateClass;
+  final Future<void> Function(ClassRoom cls, BuildContext context) onViewClassMembers;
   final VoidCallback onLogout;
   final void Function(Justificante justificante, JustificanteStatus status)
       onUpdateJustificante;
@@ -2472,6 +2538,7 @@ class _TeacherShellState extends State<TeacherShell> {
       TeacherClassesPage(
         classes: myClasses,
         onCreate: widget.onCreateClass,
+        onViewMembers: widget.onViewClassMembers,
       ),
       TeacherPanel(
         classes: myClasses,
@@ -2539,10 +2606,12 @@ class TeacherClassesPage extends StatefulWidget {
     super.key,
     required this.classes,
     required this.onCreate,
+    required this.onViewMembers,
   });
 
   final List<ClassRoom> classes;
   final void Function(String name, BuildContext context) onCreate;
+  final Future<void> Function(ClassRoom cls, BuildContext context) onViewMembers;
 
   @override
   State<TeacherClassesPage> createState() => _TeacherClassesPageState();
@@ -2618,6 +2687,8 @@ class _TeacherClassesPageState extends State<TeacherClassesPage> {
                 leading: const Icon(Icons.folder_outlined),
                 title: Text(c.name),
                 subtitle: Text('Código: ${c.code}\nAlumnos: ${c.studentCount}'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => widget.onViewMembers(c, context),
               ),
             ),
           ),
