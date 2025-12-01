@@ -186,6 +186,11 @@ class _FeeldayAppState extends State<FeeldayApp> {
   final List<ClassRoom> _classes = [];
   final List<MoodEntry> _allMoodEntries = [];
   final List<Justificante> _allJustificantes = [];
+  final List<Map<String, dynamic>> _perceptions = [];
+  final List<Map<String, dynamic>> _subjects = [];
+  final List<Map<String, dynamic>> _messages = [];
+  final List<Map<String, dynamic>> _alerts = [];
+  Map<String, dynamic> _dashboardSummary = {};
   final Map<int, ScheduleUpload> _mySchedules = {};
   UserAccount? _currentUser;
   bool _loading = false;
@@ -225,6 +230,9 @@ class _FeeldayAppState extends State<FeeldayApp> {
                 schedules: _mySchedules,
                 moodEntries: _allMoodEntries,
                 justificantes: _allJustificantes,
+                perceptions: _perceptions,
+                messages: _messages,
+                alerts: _alerts,
                 onJoinClass: _joinClass,
                 onLogout: _logout,
                 onUploadSchedule: _uploadSchedule,
@@ -238,18 +246,26 @@ class _FeeldayAppState extends State<FeeldayApp> {
                   imageUrlOverride: imageUrlOverride,
                   context: context,
                 ),
+                onSubmitPerception: _submitPerception,
                 onRefresh: _refreshData,
+                onSendMessage: _sendMessage,
               )
             : TeacherShell(
                 user: _currentUser!,
                 classes: _classes,
                 moodEntries: _allMoodEntries,
                 justificantes: _allJustificantes,
+                perceptions: _perceptions,
+                alerts: _alerts,
+                messages: _messages,
+                dashboardSummary: _dashboardSummary,
                 onCreateClass: (name, ctx) => _createClass(name, ctx),
                 onLogout: _logout,
                 onUpdateJustificante: _updateJustificanteStatus,
                 onReviewEnrollment: _reviewEnrollment,
                 onMarkMoodRead: _markMoodRead,
+                onSendMessage: _sendMessage,
+                onResolveAlert: _resolveAlert,
                 onRefresh: _refreshData,
               );
 
@@ -482,6 +498,59 @@ class _FeeldayAppState extends State<FeeldayApp> {
     }
   }
 
+  Future<bool> _submitPerception({
+    required ClassRoom cls,
+    required int subjectId,
+    required int week,
+    required String level,
+    String? note,
+  }) async {
+    if (_currentUser == null) return false;
+    try {
+      await _api.submitPerception({
+        'classId': cls.id,
+        'subjectId': subjectId,
+        'week': week,
+        'level': level,
+        'note': note,
+      });
+      await _refreshData();
+      return true;
+    } catch (e) {
+      _messengerKey.currentState?.showSnackBar(SnackBar(content: Text(e.toString())));
+      return false;
+    }
+  }
+
+  Future<void> _sendMessage({
+    int? classId,
+    int? toStudentId,
+    required String title,
+    required String body,
+  }) async {
+    try {
+      await _api.sendMessage({
+        if (classId != null) 'classId': classId,
+        if (toStudentId != null) 'toStudentId': toStudentId,
+        'title': title,
+        'body': body,
+      });
+      await _refreshData();
+      _messengerKey.currentState?.showSnackBar(const SnackBar(content: Text('Mensaje enviado')));
+    } catch (e) {
+      _messengerKey.currentState?.showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  Future<void> _resolveAlert(int id) async {
+    try {
+      await _api.resolveAlert(id);
+      await _refreshData();
+    } catch (e) {
+      _messengerKey.currentState?.showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
   Future<void> _updateJustificanteStatus(
     Justificante justificante,
     JustificanteStatus status,
@@ -635,6 +704,32 @@ class _FeeldayAppState extends State<FeeldayApp> {
             teacherRead: m['teacherRead'] as bool? ?? false,
           );
         }));
+
+      final perceptions = await _api.fetchPerceptions();
+      _perceptions
+        ..clear()
+        ..addAll(perceptions.cast<Map<String, dynamic>>());
+
+      final subjects = await _api.fetchSubjects();
+      _subjects
+        ..clear()
+        ..addAll(subjects.cast<Map<String, dynamic>>());
+
+      final messages = await _api.fetchMessages();
+      _messages
+        ..clear()
+        ..addAll(messages.cast<Map<String, dynamic>>());
+
+      final alerts = await _api.fetchAlerts();
+      _alerts
+        ..clear()
+        ..addAll(alerts.cast<Map<String, dynamic>>());
+
+      if (_currentUser!.role == UserRole.teacher) {
+        _dashboardSummary = await _api.fetchDashboard();
+      } else {
+        _dashboardSummary = {};
+      }
 
       final justs = await _api.fetchJustificantes();
       _allJustificantes
@@ -1003,12 +1098,17 @@ class StudentShell extends StatefulWidget {
     required this.schedules,
     required this.moodEntries,
     required this.justificantes,
+    required this.perceptions,
+    required this.messages,
+    required this.alerts,
     required this.onJoinClass,
     required this.onLogout,
     required this.onUploadSchedule,
     required this.onSubmitMood,
     required this.onSubmitJustificante,
+    required this.onSubmitPerception,
     required this.onRefresh,
+    required this.onSendMessage,
   });
 
   final UserAccount user;
@@ -1016,6 +1116,9 @@ class StudentShell extends StatefulWidget {
   final Map<int, ScheduleUpload> schedules;
   final List<MoodEntry> moodEntries;
   final List<Justificante> justificantes;
+  final List<Map<String, dynamic>> perceptions;
+  final List<Map<String, dynamic>> messages;
+  final List<Map<String, dynamic>> alerts;
   final void Function(String code, BuildContext context) onJoinClass;
   final VoidCallback onLogout;
   final void Function(ClassRoom cls, String fileName, String fileUrl) onUploadSchedule;
@@ -1032,7 +1135,20 @@ class StudentShell extends StatefulWidget {
     required String imageLabel,
     required String imageUrlOverride,
   }) onSubmitJustificante;
+  final Future<bool> Function({
+    required ClassRoom cls,
+    required int subjectId,
+    required int week,
+    required String level,
+    String? note,
+  }) onSubmitPerception;
   final Future<void> Function() onRefresh;
+  final Future<void> Function({
+    int? classId,
+    int? toStudentId,
+    required String title,
+    required String body,
+  }) onSendMessage;
 
   @override
   State<StudentShell> createState() => _StudentShellState();
@@ -1062,6 +1178,20 @@ class _StudentShellState extends State<StudentShell> {
         classes: widget.classes,
         justificantes: widget.justificantes,
         onSubmitJustificante: widget.onSubmitJustificante,
+        onRefresh: widget.onRefresh,
+      ),
+      PerceptionsPage(
+        user: widget.user,
+        classes: widget.classes,
+        perceptions: widget.perceptions,
+        onSubmitPerception: widget.onSubmitPerception,
+        onRefresh: widget.onRefresh,
+      ),
+      MessagesPage(
+        user: widget.user,
+        classes: widget.classes,
+        messages: widget.messages,
+        onSend: widget.onSendMessage,
         onRefresh: widget.onRefresh,
       ),
     ];
@@ -1097,6 +1227,14 @@ class _StudentShellState extends State<StudentShell> {
           NavigationDestination(
             icon: Icon(Icons.image_outlined),
             label: 'Justificantes',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.schedule_outlined),
+            label: 'Percepción',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.chat_bubble_outline),
+            label: 'Mensajes',
           ),
         ],
         onDestinationSelected: (i) => setState(() => _index = i),
@@ -1781,6 +1919,367 @@ class _JustificantesPageState extends State<JustificantesPage> {
   }
 }
 
+class PerceptionsPage extends StatefulWidget {
+  const PerceptionsPage({
+    super.key,
+    required this.user,
+    required this.classes,
+    required this.perceptions,
+    required this.onSubmitPerception,
+    required this.onRefresh,
+  });
+
+  final UserAccount user;
+  final List<ClassRoom> classes;
+  final List<Map<String, dynamic>> perceptions;
+  final Future<bool> Function({
+    required ClassRoom cls,
+    required int subjectId,
+    required int week,
+    required String level,
+    String? note,
+  }) onSubmitPerception;
+  final Future<void> Function() onRefresh;
+
+  @override
+  State<PerceptionsPage> createState() => _PerceptionsPageState();
+}
+
+class _PerceptionsPageState extends State<PerceptionsPage> {
+  int? selectedClassId;
+  int week = 1;
+  String level = 'tranquilo';
+  final noteCtrl = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    final joined = widget.classes.where((c) => c.enrollmentStatus == 'approved').toList();
+    final myPerceptions = widget.perceptions
+        .where((p) => p['studentId'] == widget.user.id)
+        .toList();
+
+    return RefreshIndicator(
+      onRefresh: widget.onRefresh,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          16,
+          16,
+          16 + MediaQuery.of(context).viewPadding.bottom,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Percepción semanal',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF073F50),
+              ),
+            ),
+            const SizedBox(height: 8),
+            DropdownButton<int>(
+              value: selectedClassId,
+              hint: const Text('Clase'),
+              isExpanded: true,
+              items: joined
+                  .map((c) => DropdownMenuItem<int>(value: c.id, child: Text(c.name)))
+                  .toList(),
+              onChanged: (id) => setState(() => selectedClassId = id),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Text('Semana'),
+                const SizedBox(width: 8),
+                DropdownButton<int>(
+                  value: week,
+                  items: List.generate(16, (i) => i + 1)
+                      .map((w) => DropdownMenuItem(value: w, child: Text('Semana $w')))
+                      .toList(),
+                  onChanged: (w) => setState(() => week = w ?? 1),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                _levelChip('estrés alto', '😣'),
+                _levelChip('carga media', '😕'),
+                _levelChip('tranquilo', '🙂'),
+                _levelChip('muy bien', '😄'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: noteCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(labelText: 'Nota (opcional)'),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: selectedClassId == null
+                    ? null
+                    : () async {
+                        final ok = await widget.onSubmitPerception(
+                          cls: joined.firstWhere((c) => c.id == selectedClassId),
+                          subjectId: selectedClassId!, // clase se usa como materia
+                          week: week,
+                          level: level,
+                          note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
+                        );
+                        if (ok) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Percepción registrada')),
+                          );
+                          noteCtrl.clear();
+                        }
+                      },
+                child: const Text('Enviar percepción'),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Historial',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF073F50),
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...myPerceptions.map(
+              (p) => Card(
+                child: ListTile(
+                  title: Text(
+                      'Semana ${p['week']} · Clase ${p['class']?['name'] ?? p['classId'] ?? ''}'),
+                  subtitle: Text('${p['level']} ${p['note'] != null ? '\n${p['note']}' : ''}'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _levelChip(String value, String emoji) {
+    final active = level == value;
+    return ChoiceChip(
+      label: Text('$emoji $value'),
+      selected: active,
+      onSelected: (_) => setState(() => level = value),
+    );
+  }
+}
+
+class MessagesPage extends StatefulWidget {
+  const MessagesPage({
+    super.key,
+    required this.user,
+    required this.classes,
+    required this.messages,
+    required this.onSend,
+    required this.onRefresh,
+  });
+
+  final UserAccount user;
+  final List<ClassRoom> classes;
+  final List<Map<String, dynamic>> messages;
+  final Future<void> Function({
+    int? classId,
+    int? toStudentId,
+    required String title,
+    required String body,
+  }) onSend;
+  final Future<void> Function() onRefresh;
+
+  @override
+  State<MessagesPage> createState() => _MessagesPageState();
+}
+
+class _MessagesPageState extends State<MessagesPage> {
+  final titleCtrl = TextEditingController();
+  final bodyCtrl = TextEditingController();
+  int? selectedId;
+
+  @override
+  void initState() {
+    super.initState();
+    final joined = _joinedClasses();
+    if (joined.isNotEmpty) selectedId = joined.first.id;
+  }
+
+  List<ClassRoom> _joinedClasses() {
+    return widget.user.role == UserRole.student
+        ? widget.classes.where((c) => c.enrollmentStatus == 'approved').toList()
+        : widget.classes.where((c) => c.teacherEmail == widget.user.email).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final joined = _joinedClasses();
+    if (selectedId != null && joined.every((c) => c.id != selectedId)) {
+      selectedId = joined.isNotEmpty ? joined.first.id : null;
+    }
+
+    return RefreshIndicator(
+      onRefresh: widget.onRefresh,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          16,
+          16,
+          16 + MediaQuery.of(context).viewPadding.bottom,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Mensajes',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF073F50),
+              ),
+            ),
+            const SizedBox(height: 8),
+            DropdownButton<int>(
+              value: selectedId,
+              isExpanded: true,
+              hint: const Text('Clase'),
+              items: joined
+                  .map((c) => DropdownMenuItem<int>(value: c.id, child: Text(c.name)))
+                  .toList(),
+              onChanged: (id) => setState(() => selectedId = id),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: titleCtrl,
+              decoration: const InputDecoration(labelText: 'Título'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: bodyCtrl,
+              maxLines: 3,
+              decoration: const InputDecoration(labelText: 'Mensaje'),
+            ),
+            const SizedBox(height: 8),
+            if (widget.user.role == UserRole.teacher)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: selectedId == null
+                      ? null
+                      : () async {
+                          await widget.onSend(
+                            classId: selectedId,
+                            title: titleCtrl.text.trim(),
+                            body: bodyCtrl.text.trim(),
+                          );
+                          titleCtrl.clear();
+                          bodyCtrl.clear();
+                        },
+                  child: const Text('Enviar'),
+                ),
+              ),
+            const SizedBox(height: 12),
+            ...widget.messages.map(
+              (m) => Card(
+                child: ListTile(
+                  leading: const Icon(Icons.chat_bubble_outline),
+                  title: Text(m['title']?.toString() ?? 'Mensaje'),
+                  subtitle: Text(m['body']?.toString() ?? ''),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class MessageComposer extends StatefulWidget {
+  const MessageComposer({
+    super.key,
+    required this.classes,
+    required this.onSend,
+    required this.isTutor,
+  });
+
+  final List<ClassRoom> classes;
+  final Future<void> Function({
+    int? classId,
+    int? toStudentId,
+    required String title,
+    required String body,
+  }) onSend;
+  final bool isTutor;
+
+  @override
+  State<MessageComposer> createState() => _MessageComposerState();
+}
+
+class _MessageComposerState extends State<MessageComposer> {
+  final titleCtrl = TextEditingController();
+  final bodyCtrl = TextEditingController();
+  ClassRoom? selectedClass;
+
+  @override
+  Widget build(BuildContext context) {
+    final available = widget.classes;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButton<ClassRoom>(
+          value: selectedClass,
+          hint: const Text('Clase'),
+          isExpanded: true,
+          items: available
+              .map((c) => DropdownMenuItem(value: c, child: Text(c.name)))
+              .toList(),
+          onChanged: (c) => setState(() => selectedClass = c),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: titleCtrl,
+          decoration: const InputDecoration(labelText: 'Título'),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: bodyCtrl,
+          maxLines: 2,
+          decoration: const InputDecoration(labelText: 'Mensaje'),
+        ),
+        const SizedBox(height: 6),
+        Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton(
+            onPressed: selectedClass == null
+                ? null
+                : () async {
+                    await widget.onSend(
+                      classId: selectedClass!.id,
+                      title: titleCtrl.text.trim(),
+                      body: bodyCtrl.text.trim(),
+                    );
+                    titleCtrl.clear();
+                    bodyCtrl.clear();
+                  },
+            child: const Text('Enviar'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class JustificanteForm extends StatefulWidget {
   const JustificanteForm({
     super.key,
@@ -1913,11 +2412,17 @@ class TeacherShell extends StatefulWidget {
     required this.classes,
     required this.moodEntries,
     required this.justificantes,
+    required this.perceptions,
+    required this.alerts,
+    required this.messages,
+    required this.dashboardSummary,
     required this.onCreateClass,
     required this.onLogout,
     required this.onUpdateJustificante,
     required this.onReviewEnrollment,
     required this.onMarkMoodRead,
+    required this.onSendMessage,
+    required this.onResolveAlert,
     required this.onRefresh,
   });
 
@@ -1925,6 +2430,10 @@ class TeacherShell extends StatefulWidget {
   final List<ClassRoom> classes;
   final List<MoodEntry> moodEntries;
   final List<Justificante> justificantes;
+  final List<Map<String, dynamic>> perceptions;
+  final List<Map<String, dynamic>> alerts;
+  final List<Map<String, dynamic>> messages;
+  final Map<String, dynamic> dashboardSummary;
   final void Function(String name, BuildContext context) onCreateClass;
   final VoidCallback onLogout;
   final void Function(Justificante justificante, JustificanteStatus status)
@@ -1932,6 +2441,13 @@ class TeacherShell extends StatefulWidget {
   final void Function(int enrollmentId, String status, BuildContext context)
       onReviewEnrollment;
   final void Function(int moodId) onMarkMoodRead;
+  final Future<void> Function({
+    int? classId,
+    int? toStudentId,
+    required String title,
+    required String body,
+  }) onSendMessage;
+  final Future<void> Function(int id) onResolveAlert;
   final Future<void> Function() onRefresh;
 
   @override
@@ -1955,9 +2471,15 @@ class _TeacherShellState extends State<TeacherShell> {
         classes: myClasses,
         moodEntries: widget.moodEntries,
         justificantes: widget.justificantes,
+        perceptions: widget.perceptions,
+        alerts: widget.alerts,
+        messages: widget.messages,
+        dashboardSummary: widget.dashboardSummary,
         onUpdateJustificante: widget.onUpdateJustificante,
         onReviewEnrollment: widget.onReviewEnrollment,
         onMarkMoodRead: widget.onMarkMoodRead,
+        onSendMessage: widget.onSendMessage,
+        onResolveAlert: widget.onResolveAlert,
         onRefresh: widget.onRefresh,
       ),
     ];
@@ -2105,20 +2627,37 @@ class TeacherPanel extends StatelessWidget {
     required this.classes,
     required this.moodEntries,
     required this.justificantes,
+    required this.perceptions,
+    required this.alerts,
+    required this.messages,
+    required this.dashboardSummary,
     required this.onUpdateJustificante,
     required this.onReviewEnrollment,
     required this.onMarkMoodRead,
+    required this.onSendMessage,
+    required this.onResolveAlert,
     required this.onRefresh,
   });
 
   final List<ClassRoom> classes;
   final List<MoodEntry> moodEntries;
   final List<Justificante> justificantes;
+  final List<Map<String, dynamic>> perceptions;
+  final List<Map<String, dynamic>> alerts;
+  final List<Map<String, dynamic>> messages;
+  final Map<String, dynamic> dashboardSummary;
   final void Function(Justificante justificante, JustificanteStatus status)
       onUpdateJustificante;
   final void Function(int enrollmentId, String status, BuildContext context)
       onReviewEnrollment;
   final void Function(int moodId) onMarkMoodRead;
+  final Future<void> Function({
+    int? classId,
+    int? toStudentId,
+    required String title,
+    required String body,
+  }) onSendMessage;
+  final Future<void> Function(int id) onResolveAlert;
   final Future<void> Function() onRefresh;
 
   @override
@@ -2172,12 +2711,113 @@ class TeacherPanel extends StatelessWidget {
                   ),
                 );
               }),
-              const SizedBox(height: 16),
-            ],
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                Text(
+            const SizedBox(height: 16),
+          ],
+          if (dashboardSummary.isNotEmpty) ...[
+            const Text(
+              'Resumen del grupo',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF073F50),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Card(
+              child: ListTile(
+                title: Text(
+                    'Check-in semana: ${(((dashboardSummary['checkInRate'] as num? ?? 0) * 100)).toStringAsFixed(0)}%'),
+                subtitle: Text(
+                  'Alumnos: ${dashboardSummary['studentCount'] ?? 0} · Ánimos bajos: ${dashboardSummary['lowMoodCount'] ?? 0}',
+                ),
+              ),
+            ),
+            if ((dashboardSummary['topStressSubjects'] as List? ?? []).isNotEmpty)
+              Card(
+                child: ListTile(
+                  title: const Text('Top materias con estrés'),
+                  subtitle: Text(
+                    (dashboardSummary['topStressSubjects'] as List<dynamic>)
+                        .map((e) => '${e['subject']}: ${e['score']}')
+                        .join(' · '),
+                  ),
+                ),
+              ),
+            if ((dashboardSummary['justificanteHistogram'] as List? ?? []).isNotEmpty)
+              Card(
+                child: ListTile(
+                  title: const Text('Justificantes por tipo'),
+                  subtitle: Text(
+                    (dashboardSummary['justificanteHistogram'] as List<dynamic>)
+                        .map((e) => '${e['type']}: ${e['count']}')
+                        .join(' · '),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 16),
+          ],
+          const Text(
+            'Alertas',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF073F50),
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (alerts.isEmpty)
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.check_circle, color: Color(0xFF0B8A3A)),
+                title: Text('Sin alertas activas'),
+              ),
+            )
+          else
+            ...alerts.map(
+              (a) => Card(
+                child: ListTile(
+                  leading: const Icon(Icons.warning_amber_rounded, color: Color(0xFFC1121F)),
+                  title: Text('${a['description'] ?? ''}'),
+                  subtitle: Text('Tipo: ${a['type']} · Severidad: ${a['severity']}'),
+                  trailing: a['resolved'] == true
+                      ? const Icon(Icons.check, color: Color(0xFF0B8A3A))
+                      : TextButton(
+                          onPressed: () => onResolveAlert(a['id'] as int),
+                          child: const Text('Resolver'),
+                        ),
+                ),
+              ),
+            ),
+          const SizedBox(height: 16),
+          const Text(
+            'Mensajes',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF073F50),
+            ),
+          ),
+          const SizedBox(height: 8),
+          MessageComposer(
+            classes: classes,
+            onSend: onSendMessage,
+            isTutor: true,
+          ),
+          const SizedBox(height: 8),
+          ...messages.map(
+            (m) => Card(
+              child: ListTile(
+                leading: const Icon(Icons.chat_bubble_outline),
+                title: Text(m['title']?.toString() ?? 'Mensaje'),
+                subtitle: Text(m['body']?.toString() ?? ''),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: const [
+              Text(
                   'Panel de emociones',
                   style: TextStyle(
                     fontSize: 20,

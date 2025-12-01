@@ -152,6 +152,65 @@ class ApiClient {
     return _decode(res);
   }
 
+  Future<List<dynamic>> fetchPerceptions() async {
+    final res = await http.get(Uri.parse('$baseUrl/perceptions'), headers: _headers());
+    final data = _decode(res);
+    if (data is List) return data;
+    return [];
+  }
+
+  Future<Map<String, dynamic>> submitPerception(Map<String, dynamic> payload) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/perceptions'),
+      headers: _headers(),
+      body: jsonEncode(payload),
+    );
+    return _decode(res);
+  }
+
+  Future<List<dynamic>> fetchSubjects() async {
+    final res = await http.get(Uri.parse('$baseUrl/perceptions/subjects'), headers: _headers());
+    final data = _decode(res);
+    if (data is List) return data;
+    return [];
+  }
+
+  Future<List<dynamic>> fetchMessages() async {
+    final res = await http.get(Uri.parse('$baseUrl/messages'), headers: _headers());
+    final data = _decode(res);
+    if (data is List) return data;
+    return [];
+  }
+
+  Future<Map<String, dynamic>> sendMessage(Map<String, dynamic> payload) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/messages'),
+      headers: _headers(),
+      body: jsonEncode(payload),
+    );
+    return _decode(res);
+  }
+
+  Future<List<dynamic>> fetchAlerts() async {
+    final res = await http.get(Uri.parse('$baseUrl/alerts'), headers: _headers());
+    final data = _decode(res);
+    if (data is List) return data;
+    return [];
+  }
+
+  Future<Map<String, dynamic>> resolveAlert(int id) async {
+    final res = await http.patch(
+      Uri.parse('$baseUrl/alerts/$id/resolve'),
+      headers: _headers(),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> fetchDashboard() async {
+    final res = await http.get(Uri.parse('$baseUrl/dashboard'), headers: _headers());
+    return _decode(res);
+  }
+
   dynamic _decode(http.Response res) {
     dynamic body;
     try {
