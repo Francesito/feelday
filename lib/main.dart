@@ -2104,16 +2104,7 @@ Future<void> downloadJustificanteImage(
     if (bytes == null) throw Exception('Imagen no disponible');
     final filename = _sanitizeFileName(imageLabel, imageUrl);
     final saved = await saveImageBytes(filename, bytes);
-    if (!saved) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Descarga no disponible en esta plataforma. Usa la versión web para guardar la imagen.',
-          ),
-        ),
-      );
-      return;
-    }
+    if (!saved) throw Exception('Descarga no disponible en esta plataforma');
     messenger.showSnackBar(
       SnackBar(content: Text('Imagen descargada: $filename')),
     );
