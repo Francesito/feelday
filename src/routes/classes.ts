@@ -71,6 +71,32 @@ router.post('/join', requireAuth, requireRole('student'), async (req: Authentica
   }
 });
 
+// Detalle de clase con alumnos inscritos (para el profesor)
+router.get('/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'No autorizado' });
+    const id = Number(req.params.id);
+    const cls = await prisma.class.findUnique({
+      where: { id },
+      include: {
+        teacher: { select: { id: true, email: true, fullName: true } },
+        enrollments: {
+          include: { student: { select: { id: true, email: true, fullName: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    if (!cls) return res.status(404).json({ error: 'Clase no encontrada' });
+    if (req.user.role !== 'teacher' || cls.teacherId !== req.user.userId) {
+      return res.status(403).json({ error: 'Solo el profesor de la clase puede ver los alumnos' });
+    }
+    return res.json(cls);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 router.get('/:id/members', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'No autorizado' });
