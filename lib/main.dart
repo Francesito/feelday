@@ -568,7 +568,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
   Future<bool> _submitPerception({
     required ClassRoom cls,
     required int subjectId,
-    required int week,
+    required DateTime perceptionDate,
     required String level,
     String? note,
   }) async {
@@ -577,7 +577,7 @@ class _FeeldayAppState extends State<FeeldayApp> {
       await _api.submitPerception({
         'classId': cls.id,
         'subjectId': subjectId,
-        'week': week,
+        'perceptionDate': perceptionDate.toIso8601String(),
         'level': level,
         'note': note,
       });
@@ -1200,7 +1200,7 @@ class StudentShell extends StatefulWidget {
   final Future<bool> Function({
     required ClassRoom cls,
     required int subjectId,
-    required int week,
+    required DateTime perceptionDate,
     required String level,
     String? note,
   }) onSubmitPerception;
@@ -2230,7 +2230,7 @@ class PerceptionsPage extends StatefulWidget {
   final Future<bool> Function({
     required ClassRoom cls,
     required int subjectId,
-    required int week,
+    required DateTime perceptionDate,
     required String level,
     String? note,
   }) onSubmitPerception;
@@ -2242,9 +2242,44 @@ class PerceptionsPage extends StatefulWidget {
 
 class _PerceptionsPageState extends State<PerceptionsPage> {
   int? selectedClassId;
-  int week = 1;
+  late final DateTime currentMonth;
+  int selectedDay = DateTime.now().day;
   String level = 'tranquilo';
   final noteCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    currentMonth = DateTime(now.year, now.month);
+  }
+
+  int _daysInMonth(DateTime date) => DateTime(date.year, date.month + 1, 0).day;
+
+  String _monthLabel(DateTime date) {
+    const months = [
+      'enero',
+      'febrero',
+      'marzo',
+      'abril',
+      'mayo',
+      'junio',
+      'julio',
+      'agosto',
+      'septiembre',
+      'octubre',
+      'noviembre',
+      'diciembre',
+    ];
+    return '${months[date.month - 1]} ${date.year}';
+  }
+
+  String _formatPerceptionDate(dynamic value) {
+    final parsed = DateTime.tryParse(value?.toString() ?? '');
+    if (parsed == null) return 'Fecha desconocida';
+    final twoDigits = (int n) => n.toString().padLeft(2, '0');
+    return '${twoDigits(parsed.day)}/${twoDigits(parsed.month)}/${parsed.year}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2267,7 +2302,7 @@ class _PerceptionsPageState extends State<PerceptionsPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Percepción semanal',
+              'Percepción diaria',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
@@ -2287,14 +2322,16 @@ class _PerceptionsPageState extends State<PerceptionsPage> {
             const SizedBox(height: 8),
             Row(
               children: [
-                const Text('Semana'),
+                Text('Día (${_monthLabel(currentMonth)})'),
                 const SizedBox(width: 8),
                 DropdownButton<int>(
-                  value: week,
-                  items: List.generate(16, (i) => i + 1)
-                      .map((w) => DropdownMenuItem(value: w, child: Text('Semana $w')))
+                  value: selectedDay,
+                  items: List.generate(_daysInMonth(currentMonth), (i) => i + 1)
+                      .map(
+                        (d) => DropdownMenuItem(value: d, child: Text('Día $d')),
+                      )
                       .toList(),
-                  onChanged: (w) => setState(() => week = w ?? 1),
+                  onChanged: (d) => setState(() => selectedDay = d ?? selectedDay),
                 ),
               ],
             ),
@@ -2321,10 +2358,15 @@ class _PerceptionsPageState extends State<PerceptionsPage> {
                 onPressed: selectedClassId == null
                     ? null
                     : () async {
+                        final date = DateTime(
+                          currentMonth.year,
+                          currentMonth.month,
+                          selectedDay,
+                        );
                         final ok = await widget.onSubmitPerception(
                           cls: joined.firstWhere((c) => c.id == selectedClassId),
                           subjectId: selectedClassId!, // clase se usa como materia
-                          week: week,
+                          perceptionDate: date,
                           level: level,
                           note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
                         );
@@ -2351,7 +2393,8 @@ class _PerceptionsPageState extends State<PerceptionsPage> {
               (p) => Card(
                 child: ListTile(
                   title: Text(
-                      'Semana ${p['week']} · Clase ${p['class']?['name'] ?? p['classId'] ?? ''}'),
+                    '${_formatPerceptionDate(p['perceptionDate'] ?? p['createdAt'])} · Clase ${p['class']?['name'] ?? p['classId'] ?? ''}',
+                  ),
                   subtitle: Text('${p['level']} ${p['note'] != null ? '\n${p['note']}' : ''}'),
                 ),
               ),

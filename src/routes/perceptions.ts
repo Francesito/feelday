@@ -10,23 +10,23 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     if (!req.user) return res.status(401).json({ error: 'No autorizado' });
     const perceptions =
       req.user.role === 'teacher'
-        ? await prisma.weeklyPerception.findMany({
+        ? await prisma.dailyPerception.findMany({
             where: { class: { teacherId: req.user.userId } },
             include: {
               class: { select: { id: true, name: true } },
               student: { select: { id: true, email: true, fullName: true } },
               subject: true,
             },
-            orderBy: { createdAt: 'desc' },
+            orderBy: { perceptionDate: 'desc' },
           })
-        : await prisma.weeklyPerception.findMany({
+        : await prisma.dailyPerception.findMany({
             where: { studentId: req.user.userId },
             include: {
               class: { select: { id: true, name: true } },
               student: { select: { id: true, email: true, fullName: true } },
               subject: true,
             },
-            orderBy: { createdAt: 'desc' },
+            orderBy: { perceptionDate: 'desc' },
           });
     return res.json(perceptions);
   } catch (err) {
@@ -38,10 +38,13 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res) => {
 router.post('/', requireAuth, requireRole('student'), async (req: AuthenticatedRequest, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'No autorizado' });
-    const { classId, week, level, note } = req.body;
-    if (!classId || week === undefined || !level) {
-      return res.status(400).json({ error: 'Faltan campos (classId, semana, nivel)' });
+    const { classId, day, level, note, perceptionDate } = req.body;
+    if (!classId || (day === undefined && !perceptionDate) || !level) {
+      return res
+        .status(400)
+        .json({ error: 'Faltan campos (classId, día o perceptionDate, nivel)' });
     }
+
     const enrollment = await prisma.classEnrollment.findFirst({
       where: { classId: Number(classId), studentId: req.user.userId, status: 'approved' },
     });
@@ -56,22 +59,40 @@ router.post('/', requireAuth, requireRole('student'), async (req: AuthenticatedR
       update: {},
       create: { name: cls.name },
     });
-    const existing = await prisma.weeklyPerception.findFirst({
+
+    let date: Date;
+    if (perceptionDate) {
+      date = new Date(perceptionDate);
+    } else {
+      const now = new Date();
+      date = new Date(now.getFullYear(), now.getMonth(), Number(day));
+    }
+    if (Number.isNaN(date.getTime())) {
+      return res.status(400).json({ error: 'La fecha indicada no es válida.' });
+    }
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(startOfDay);
+    endOfDay.setDate(endOfDay.getDate() + 1);
+
+    const existing = await prisma.dailyPerception.findFirst({
       where: {
         studentId: req.user.userId,
         classId: Number(classId),
-        week: Number(week),
+        perceptionDate: { gte: startOfDay, lt: endOfDay },
       },
     });
     if (existing) {
-      return res.status(400).json({ error: 'Ya registraste percepción para esta materia y semana.' });
+      return res
+        .status(400)
+        .json({ error: 'Ya registraste percepción para esta materia en este día.' });
     }
-    const created = await prisma.weeklyPerception.create({
+    const created = await prisma.dailyPerception.create({
       data: {
         studentId: req.user.userId,
         classId: Number(classId),
         subjectId: subject.id,
-        week: Number(week),
+        perceptionDate: date,
         level: level.toString(),
         note,
       },
@@ -79,12 +100,13 @@ router.post('/', requireAuth, requireRole('student'), async (req: AuthenticatedR
     // Alerta si nivel sugiere estrés
     const levelLower = level.toString().toLowerCase();
     if (levelLower.includes('estr') || levelLower.includes('stress')) {
+      const dateLabel = `${startOfDay.getFullYear()}-${String(startOfDay.getMonth() + 1).padStart(2, '0')}-${String(startOfDay.getDate()).padStart(2, '0')}`;
       await prisma.alert.create({
         data: {
           studentId: req.user.userId,
           classId: Number(classId),
           type: 'low_mood',
-          description: `Percepción alta de estrés en semana ${week}`,
+          description: `Percepción alta de estrés el ${dateLabel}`,
           severity: 'medium',
         },
       });

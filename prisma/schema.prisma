@@ -50,7 +50,7 @@ model User {
   schedules   Schedule[]
   moodEntries MoodEntry[]
   justificantes Justificante[]
-  weeklyPerceptions WeeklyPerception[]
+  dailyPerceptions DailyPerception[]
   messagesSent Message[] @relation("TutorMessages")
   messagesReceived Message[] @relation("StudentMessages")
   alerts      Alert[]    @relation("StudentAlerts")
@@ -68,7 +68,7 @@ model Class {
   schedules   Schedule[]
   moodEntries MoodEntry[]
   justificantes Justificante[]
-  weeklyPerceptions WeeklyPerception[]
+  dailyPerceptions DailyPerception[]
   alerts      Alert[]    @relation("ClassAlerts")
   messages    Message[]
 }
@@ -135,21 +135,24 @@ model Justificante {
 model Subject {
   id    Int    @id @default(autoincrement())
   name  String @unique @db.VarChar(190)
-  perceptions WeeklyPerception[]
+  perceptions DailyPerception[]
 }
 
-model WeeklyPerception {
-  id        Int      @id @default(autoincrement())
-  student   User     @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  studentId Int
-  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  classId   Int
-  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  subjectId Int
-  week      Int
-  level     String   @db.VarChar(50)
-  note      String?
-  createdAt DateTime @default(now())
+model DailyPerception {
+  id             Int      @id @default(autoincrement())
+  student        User     @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  studentId      Int
+  class          Class    @relation(fields: [classId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  classId        Int
+  subject        Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  subjectId      Int
+  perceptionDate DateTime
+  level          String   @db.VarChar(50)
+  note           String?
+  createdAt      DateTime @default(now())
+
+  @@index([perceptionDate])
+  @@unique([studentId, classId, perceptionDate])
 }
 
 model Message {

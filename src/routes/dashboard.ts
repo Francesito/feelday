@@ -25,7 +25,7 @@ router.get('/', requireAuth, requireRole('teacher'), async (req: AuthenticatedRe
     const checkInRate =
       studentCount === 0 ? 0 : Math.min(1, moods.length / (studentCount * 7));
 
-    const perceptions = await prisma.weeklyPerception.findMany({
+    const perceptions = await prisma.dailyPerception.findMany({
       where: { classId: { in: classIds } },
       include: { subject: true },
     });

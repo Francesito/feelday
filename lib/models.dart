@@ -131,13 +131,13 @@ class DailyRecord {
       };
 }
 
-class WeeklyPerception {
-  WeeklyPerception({
+class DailyPerception {
+  DailyPerception({
     required this.id,
     required this.studentId,
     required this.classId,
     required this.subjectId,
-    required this.week,
+    required this.perceptionDate,
     required this.level,
     this.note,
   });
@@ -146,16 +146,18 @@ class WeeklyPerception {
   final int studentId;
   final int classId;
   final int subjectId;
-  final int week;
+  final DateTime perceptionDate;
   final String level;
   final String? note;
 
-  factory WeeklyPerception.fromJson(Map<String, dynamic> json) => WeeklyPerception(
+  factory DailyPerception.fromJson(Map<String, dynamic> json) => DailyPerception(
         id: json['id'] as int,
         studentId: json['studentId'] as int,
         classId: json['classId'] as int,
         subjectId: json['subjectId'] as int,
-        week: json['week'] as int,
+        perceptionDate: DateTime.parse(
+          json['perceptionDate']?.toString() ?? json['createdAt'] as String,
+        ),
         level: json['level'] as String,
         note: json['note'] as String?,
       );
@@ -165,7 +167,7 @@ class WeeklyPerception {
         'studentId': studentId,
         'classId': classId,
         'subjectId': subjectId,
-        'week': week,
+        'perceptionDate': perceptionDate.toIso8601String(),
         'level': level,
         if (note != null) 'note': note,
       };
