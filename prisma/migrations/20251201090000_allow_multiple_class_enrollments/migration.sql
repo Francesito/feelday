@@ -6,6 +6,7 @@ SET @idx := (
   WHERE TABLE_SCHEMA = DATABASE()
     AND TABLE_NAME = 'ClassEnrollment'
     AND INDEX_NAME = 'ClassEnrollment_studentId_term_key'
+  LIMIT 1
 );
 
 SET @stmt := IF(

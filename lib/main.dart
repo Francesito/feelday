@@ -3024,6 +3024,8 @@ class TeacherPanel extends StatelessWidget {
     final pending = classes
         .expand((c) => c.pendingEnrollments.map((e) => {'req': e, 'className': c.name}))
         .toList();
+    final weeklyPerceptionSummary = (dashboardSummary['weeklyPerceptionSummary'] as List? ?? [])
+        .cast<Map<String, dynamic>>();
 
     return RefreshIndicator(
       onRefresh: onRefresh,
@@ -3097,6 +3099,37 @@ class TeacherPanel extends StatelessWidget {
                     (dashboardSummary['topStressSubjects'] as List<dynamic>)
                         .map((e) => '${e['subject']}: ${e['score']}')
                         .join(' · '),
+                  ),
+                ),
+              ),
+            if (weeklyPerceptionSummary.isNotEmpty)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Seguimiento semanal de percepciones',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 6),
+                      ...weeklyPerceptionSummary.map(
+                        (w) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(w['week']?.toString() ?? ''),
+                              Text(
+                                'Total: ${w['total'] ?? 0} · Estrés: ${w['stress'] ?? 0}',
+                                style: const TextStyle(color: Color(0xFF073F50)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

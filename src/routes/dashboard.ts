@@ -5,6 +5,15 @@ import { requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
 
+function isoWeekKey(date: Date): string {
+  const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNr = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - dayNr);
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((target.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${target.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
 router.get('/', requireAuth, requireRole('teacher'), async (req: AuthenticatedRequest, res) => {
   try {
     const classes = await prisma.class.findMany({
@@ -30,16 +39,27 @@ router.get('/', requireAuth, requireRole('teacher'), async (req: AuthenticatedRe
       include: { subject: true },
     });
     const stressBySubject: Record<string, number> = {};
+    const weeklyPerceptionBuckets: Record<string, { total: number; stress: number }> = {};
     perceptions.forEach((p) => {
       const key = p.subject.name;
       const level = p.level.toLowerCase();
       const weight = level.includes('estr') || level.includes('stress') ? 2 : 1;
       stressBySubject[key] = (stressBySubject[key] ?? 0) + weight;
+
+      const weekKey = isoWeekKey(new Date(p.perceptionDate));
+      const bucket = weeklyPerceptionBuckets[weekKey] ?? { total: 0, stress: 0 };
+      bucket.total += 1;
+      if (weight > 1) bucket.stress += 1;
+      weeklyPerceptionBuckets[weekKey] = bucket;
     });
     const topStressSubjects = Object.entries(stressBySubject)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
       .map(([subject, score]) => ({ subject, score }));
+
+    const weeklyPerceptionSummary = Object.entries(weeklyPerceptionBuckets)
+      .map(([week, stats]) => ({ week, total: stats.total, stress: stats.stress }))
+      .sort((a, b) => (a.week > b.week ? -1 : 1));
 
     const justificantes = await prisma.justificante.groupBy({
       by: ['type'],
@@ -59,6 +79,7 @@ router.get('/', requireAuth, requireRole('teacher'), async (req: AuthenticatedRe
       lowMoodCount,
       topStressSubjects,
       justificanteHistogram,
+      weeklyPerceptionSummary,
     });
   } catch (err) {
     console.error('[dashboard] error', err);
