@@ -7,9 +7,9 @@ Future<bool> saveBytes(String fileName, Uint8List bytes) async {
     final ext = _extension(fileName);
     final name = ext.isEmpty ? fileName : fileName.replaceAll(RegExp('\\.$ext\$'), '');
     await FileSaver.instance.saveFile(
-      name,
-      bytes,
-      ext,
+      name: name,
+      bytes: bytes,
+      ext: ext,
       mimeType: _mimeFromExt(ext),
     );
     return true;
